@@ -1,0 +1,36 @@
+-- 1. Table for Trade Categories
+CREATE TABLE categories (
+    id INT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL
+);
+
+-- 2. Table for Checklist Rules
+CREATE TABLE checklist_rules (
+    id INT PRIMARY KEY,
+    rule_text TEXT NOT NULL,
+    is_checked TINYINT(1) DEFAULT 0  -- Using TINYINT for boolean behavior (0 or 1)
+);
+
+-- 3. Table for Journal Entries
+CREATE TABLE journal_entries (
+    id BIGINT PRIMARY KEY,           -- IDs in the file are large (e.g., 1733734000000)
+    entry_type VARCHAR(50),
+    asset VARCHAR(50),
+    timestamp_str VARCHAR(50),       -- Stores format like "12/9/2025 (EOD)"
+    focus_area VARCHAR(100),
+    notes TEXT,
+    mistakes JSON,                   -- Data looks like JSON arrays ["Overtrading"]
+    neg_notes TEXT,
+    plan_bias VARCHAR(50),
+    key_level VARCHAR(50),
+    plan_notes TEXT,
+    images LONGTEXT,                 -- Contains large base64 strings, standard TEXT might be too small
+    sources TEXT,
+    created_at DATETIME,
+    entry_price DECIMAL(15, 2),      -- Decimal for currency precision
+    exit_price DECIMAL(15, 2),
+    quantity INT,
+    pnl DECIMAL(15, 2),
+    lots INT DEFAULT 0,
+    market_trend VARCHAR(50)
+);
