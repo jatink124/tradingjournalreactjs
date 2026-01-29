@@ -10,6 +10,9 @@ interface RightPanelProps {
     setEditingId: (id: number | null) => void;
     setCurrentMode: (m: string) => void;
     setFormData: React.Dispatch<React.SetStateAction<JournalForm>>;
+    // NEW PROPS
+    onRefresh: () => void;
+    isLoading: boolean;
 }
 
 const getFriendlyDate = (timestamp: number) => {
@@ -114,7 +117,7 @@ const EODCard = ({ entry, onEdit, onDelete, onImageClick }: { entry: Entry, onEd
 };
 
 // --- MAIN COMPONENT ---
-export default function RightPanel({ entries, deleteEntry, setEditingId, setCurrentMode, setFormData }: RightPanelProps) {
+export default function RightPanel({ entries, deleteEntry, setEditingId, setCurrentMode, setFormData, onRefresh, isLoading }: RightPanelProps) {
     const [currentRightTab, setCurrentRightTab] = useState('live');
     const [layout, setLayout] = useState(1);
     
@@ -211,6 +214,16 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
                 ))}
             </div>
             <div className="filter-bar">
+                {/* REFRESH BUTTON ADDED HERE */}
+                <div 
+                    className="filter-group" 
+                    onClick={isLoading ? undefined : onRefresh} 
+                    style={{cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:'40px', background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:'4px'}}
+                    title="Refresh Data"
+                >
+                    <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} style={{color:'var(--cyan)'}}></i>
+                </div>
+
                 <div className="filter-group">
                     <label>Asset</label>
                     <select value={filterAsset} onChange={(e) => setFilterAsset(e.target.value)}>
@@ -226,7 +239,7 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
                 </div>
                 <div className="filter-group" style={{ minWidth: '150px' }}>
                     <label>Search</label>
-                    <input type="text" placeholder="🔍 Search..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
+                    <input type="text" placeholder="剥 Search..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
                 </div>
                 <div className="filter-group">
                     <label>Layout</label>
@@ -238,7 +251,14 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
                 <div className="filter-group"><label>To</label><input type="date" value={filterDateEnd} onChange={(e) => setFilterDateEnd(e.target.value)} /></div>
             </div>
 
-            <div className="right-content-area">
+            {/* LOADING OVERLAY */}
+            {isLoading && (
+                <div style={{padding:'20px', textAlign:'center', color:'var(--text-muted)'}}>
+                    <i className="fas fa-circle-notch fa-spin"></i> Loading journal data...
+                </div>
+            )}
+
+            <div className="right-content-area" style={{opacity: isLoading ? 0.5 : 1}}>
                 <div className={`feed-grid layout-${layout}`}>
                     {filteredEntries.map((e, index) => {
                         const currentDateStr = getFriendlyDate(e.id);
@@ -258,7 +278,7 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
                                                 <div style={{ fontWeight: 'bold' }}>{e.asset}</div>
                                                 <div style={{ display: 'flex', gap: '5px' }}>
                                                     <div className="live-badge">{e.focus_area}</div>
-                                                    <div className="live-badge" style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}>{e.market_trend === 'Uptrend' ? '🟢' : e.market_trend === 'Downtrend' ? '🔴' : '🟡'}</div>
+                                                    <div className="live-badge" style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}>{e.market_trend === 'Uptrend' ? '泙' : e.market_trend === 'Downtrend' ? '閥' : '泯'}</div>
                                                 </div>
                                             </div>
                                             <div style={{ color: '#cbd5e1', fontSize: '0.9rem', padding:'0 15px' }}>{e.notes}</div>
@@ -275,7 +295,7 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
                                         <div className="trade-header">
                                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                                 <div style={{ fontWeight: 'bold' }}>{e.asset}</div>
-                                                <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{e.market_trend === 'Uptrend' ? '🟢' : e.market_trend === 'Downtrend' ? '🔴' : '🟡'}</span>
+                                                <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{e.market_trend === 'Uptrend' ? '泙' : e.market_trend === 'Downtrend' ? '閥' : '泯'}</span>
                                             </div>
                                             <div className={`trade-pnl ${e.pnl >= 0 ? 'pnl-green' : 'pnl-red'}`}>{e.pnl}</div>
                                         </div>

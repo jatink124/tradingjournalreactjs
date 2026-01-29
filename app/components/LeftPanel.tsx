@@ -3,6 +3,11 @@
 import React, { useState } from 'react';
 import { JournalForm, Category } from '../types';
 
+// --- CONFIGURATION ---
+// REPLACE THESE WITH YOUR CLOUDINARY DETAILS
+const CLOUD_NAME = 'dsupeybo6'; 
+const UPLOAD_PRESET = 'test123'; 
+
 interface LeftPanelProps {
     currentMode: string;
     setCurrentMode: (m: string) => void;
@@ -25,8 +30,9 @@ export default function LeftPanel({
     images, setImages, setShowChecklist, downloadSql, clearDb, categories, refreshCategories
 }: LeftPanelProps) {
     
-    // --- LOCAL STATE FOR EOD TABS ---
+    // --- LOCAL STATE ---
     const [eodSection, setEodSection] = useState<'mistakes' | 'planning'>('mistakes');
+    const [isUploading, setIsUploading] = useState(false); // New state for loading spinner
 
     // --- CATEGORY CRUD LOGIC ---
     const handleAddCategory = async () => {
@@ -75,15 +81,48 @@ export default function LeftPanel({
         return "0.00";
     };
 
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files) {
-            Array.from(e.target.files).forEach(file => {
-                const reader = new FileReader();
-                reader.onload = (ev) => {
-                    if (ev.target?.result) setImages(prev => [...prev, ev.target!.result as string]);
-                };
-                reader.readAsDataURL(file);
+    // --- NEW CLOUDINARY UPLOAD LOGIC ---
+    const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (!e.target.files || e.target.files.length === 0) return;
+
+        setIsUploading(true);
+        const files = Array.from(e.target.files);
+
+        try {
+            const uploadPromises = files.map(file => {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('upload_preset', UPLOAD_PRESET);
+
+                // Upload to Cloudinary API
+                return fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.secure_url) {
+                        return data.secure_url;
+                    } else {
+                        console.error("Upload error:", data);
+                        throw new Error("Upload failed");
+                    }
+                });
             });
+
+            // Wait for all files to upload
+            const uploadedUrls = await Promise.all(uploadPromises);
+            
+            // Add new URLs to the existing images list
+            setImages(prev => [...prev, ...uploadedUrls]);
+
+        } catch (error) {
+            console.error("Error uploading images:", error);
+            alert("Failed to upload image. Check your Cloud Name and Preset.");
+        } finally {
+            setIsUploading(false);
+            // Clear the input so you can upload the same file again if needed
+            e.target.value = ''; 
         }
     };
 
@@ -271,10 +310,19 @@ export default function LeftPanel({
             )}
 
             {/* IMAGE UPLOAD */}
-            <label>Screenshots</label>
-            <div className="drop-zone" style={{ position: 'relative', border: '1px dashed var(--border)', padding: '15px', textAlign: 'center', cursor: 'pointer', marginBottom: '10px' }}>
-                <p style={{ fontSize: '0.8rem', margin: 0 }}>Add Images</p>
-                <input type="file" accept="image/*" multiple onChange={handleImageUpload} style={{ opacity: 0, position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }} />
+            <label>Screenshots {isUploading && <span style={{color: 'var(--cyan)'}}>(Uploading...)</span>}</label>
+            <div className="drop-zone" style={{ position: 'relative', border: `1px dashed ${isUploading ? 'var(--cyan)' : 'var(--border)'}`, padding: '15px', textAlign: 'center', cursor: isUploading ? 'not-allowed' : 'pointer', marginBottom: '10px' }}>
+                <p style={{ fontSize: '0.8rem', margin: 0 }}>
+                    {isUploading ? "Please wait, uploading to Cloud..." : "Add Images (Click or Drop)"}
+                </p>
+                <input 
+                    type="file" 
+                    accept="image/*" 
+                    multiple 
+                    onChange={handleImageUpload} 
+                    disabled={isUploading}
+                    style={{ opacity: 0, position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', cursor: isUploading ? 'not-allowed' : 'pointer' }} 
+                />
             </div>
             <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginBottom: '10px' }}>
                 {images.map((img, i) => (
@@ -286,8 +334,8 @@ export default function LeftPanel({
             </div>
 
             {/* ACTIONS */}
-            <button id="btnSubmit" onClick={handleSubmit}>
-                {editingId ? "Update Entry" : `Save ${currentMode === 'eod' ? (eodSection === 'mistakes' ? 'Mistakes' : 'Plan') : 'Entry'}`}
+            <button id="btnSubmit" onClick={handleSubmit} disabled={isUploading} style={{opacity: isUploading ? 0.6 : 1, cursor: isUploading ? 'not-allowed' : 'pointer'}}>
+                {isUploading ? "Uploading Images..." : (editingId ? "Update Entry" : `Save ${currentMode === 'eod' ? (eodSection === 'mistakes' ? 'Mistakes' : 'Plan') : 'Entry'}`)}
             </button>
             
             {editingId && <button onClick={() => { setEditingId(null); setImages([]); }} style={{ background: 'var(--border)', marginTop: '5px' }}>Cancel Edit</button>}

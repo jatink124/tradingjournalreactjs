@@ -14,6 +14,9 @@ export default function Home() {
     const [editingId, setEditingId] = useState<number | null>(null);
     const [showCalculator, setShowCalculator] = useState(false);
     
+    // NEW: Loading state
+    const [isLoading, setIsLoading] = useState(false);
+    
     const [formData, setFormData] = useState<JournalForm>({
         entryTime: '', assetType: 'NIFTY', stockName: '', focusArea: 'Price Action',
         liveNotes: '', tradeEntry: '', tradeExit: '', tradeLots: 1, tradeLearning: '',
@@ -25,6 +28,7 @@ export default function Home() {
     const [showChecklist, setShowChecklist] = useState(false);
 
     useEffect(() => {
+        // Initial Fetch
         fetchEntries();
         fetchCategories();
         const now = new Date();
@@ -33,6 +37,7 @@ export default function Home() {
     }, []);
 
     const fetchEntries = async () => {
+        setIsLoading(true); // Start loading
         try {
             const res = await fetch('/api/journal');
             const data = await res.json();
@@ -46,6 +51,7 @@ export default function Home() {
             }));
             setEntries(parsed);
         } catch (err) { console.error(err); }
+        finally { setIsLoading(false); } // Stop loading
     };
 
     const fetchCategories = async () => {
@@ -104,14 +110,12 @@ export default function Home() {
             setEditingId(null);
             setImages([]);
             
-            // --- CRITICAL FIX: Explicitly reset EOD fields ---
             setFormData(prev => ({ 
                 ...prev, 
                 liveNotes: '', 
                 tradeLearning: '', 
                 resourceRows: [{ k: '', v: '' }], 
                 marketTrend: 'Sideways',
-                // Reset EOD fields so they don't stick
                 negNotes: '',
                 planNotes: '',
                 keyLevel: '',
@@ -151,7 +155,18 @@ export default function Home() {
             </div>
 
             <LeftPanel currentMode={currentMode} setCurrentMode={setCurrentMode} formData={formData} setFormData={setFormData} handleSubmit={handleSubmit} editingId={editingId} setEditingId={setEditingId} images={images} setImages={setImages} setShowChecklist={setShowChecklist} downloadSql={downloadSql} clearDb={clearDb} categories={categories} refreshCategories={fetchCategories} />
-            <RightPanel entries={entries} deleteEntry={deleteEntry} setEditingId={setEditingId} setCurrentMode={setCurrentMode} setFormData={setFormData} />
+            
+            {/* PASSING NEW PROPS TO RIGHT PANEL */}
+            <RightPanel 
+                entries={entries} 
+                deleteEntry={deleteEntry} 
+                setEditingId={setEditingId} 
+                setCurrentMode={setCurrentMode} 
+                setFormData={setFormData}
+                onRefresh={fetchEntries}
+                isLoading={isLoading}
+            />
+            
             <ChecklistModal isOpen={showChecklist} onClose={() => setShowChecklist(false)} />
             <CompoundingCalculator isOpen={showCalculator} onClose={() => setShowCalculator(false)} />
         </div>
