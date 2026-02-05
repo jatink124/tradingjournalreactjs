@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Entry, JournalForm, Category } from './types';
+import { Entry, JournalForm, Category, CalculatorEntry } from './types';
 import LeftPanel from './components/LeftPanel';
 import RightPanel from './components/RightPanel';
 import { ChecklistModal } from './components/Modals';
@@ -16,10 +16,15 @@ export default function Home() {
     
     // NEW: Loading state
     const [isLoading, setIsLoading] = useState(false);
+
+    // NEW: Shared Calculator State (Lifted from Calculator component)
+    const [calcEntries, setCalcEntries] = useState<CalculatorEntry[]>([]);
     
     const [formData, setFormData] = useState<JournalForm>({
         entryTime: '', assetType: 'NIFTY', stockName: '', focusArea: 'Price Action',
-        liveNotes: '', tradeEntry: '', tradeExit: '', tradeLots: 1, tradeLearning: '',
+        liveNotes: '', 
+        // Updated Trade Fields
+        tradeEntry: '', tradeExit: '', tradeSL: '', tradeTarget: '', tradeRisk: '', tradeLots: 1, tradeLearning: '',
         negNotes: '', planBias: 'Neutral', keyLevel: '', planNotes: '', mistakes: [],
         resourceRows: [{ k: '', v: '' }], marketTrend: 'Sideways'
     });
@@ -34,7 +39,18 @@ export default function Home() {
         const now = new Date();
         const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
         setFormData(prev => ({ ...prev, entryTime: localIso }));
+
+        // Load calculator entries from local storage if available
+        const savedCalc = localStorage.getItem('calc_entries');
+        if (savedCalc) {
+            try { setCalcEntries(JSON.parse(savedCalc)); } catch (e) { console.error("Failed to load calc entries"); }
+        }
     }, []);
+
+    // Save calc entries to local storage whenever they change
+    useEffect(() => {
+        localStorage.setItem('calc_entries', JSON.stringify(calcEntries));
+    }, [calcEntries]);
 
     const fetchEntries = async () => {
         setIsLoading(true); // Start loading
@@ -47,7 +63,10 @@ export default function Home() {
                 mistakes: typeof e.mistakes === 'string' ? JSON.parse(e.mistakes || "[]") : (e.mistakes || []),
                 images: typeof e.images === 'string' ? JSON.parse(e.images || "[]") : (e.images || []),
                 pnl: parseFloat(e.pnl || 0),
-                market_trend: e.market_trend || 'Sideways'
+                market_trend: e.market_trend || 'Sideways',
+                // Parse new fields
+                stop_loss: parseFloat(e.stop_loss || 0),
+                target_price: parseFloat(e.target_price || 0)
             }));
             setEntries(parsed);
         } catch (err) { console.error(err); }
@@ -66,8 +85,27 @@ export default function Home() {
         const entry = parseFloat(formData.tradeEntry) || 0;
         const exit = parseFloat(formData.tradeExit) || 0;
         const lots = Number(formData.tradeLots) || 0;
-        if (entry > 0 && exit > 0) return ((exit - entry) * (lots * 75) - 45).toFixed(2);
+        
+        // Simple logic: If NIFTY use 75 multiplier, else 1
+        // This mirrors logic in LeftPanel but serves as a fallback for the database save
+        if (entry > 0 && exit > 0) {
+             let multiplier = 1;
+             if(formData.assetType === 'NIFTY') multiplier = 75;
+             return ((exit - entry) * (lots * multiplier) - 45).toFixed(2);
+        }
         return "0.00";
+    };
+
+    // NEW: Function to add to calculator from LeftPanel (The Bridge)
+    const addToCalculator = (amount: number, note: string) => {
+        const newEntry: CalculatorEntry = {
+            id: Date.now(),
+            val: amount,
+            isPercentage: false,
+            note: note || 'Trade Import'
+        };
+        setCalcEntries(prev => [...prev, newEntry]);
+        setShowCalculator(true); // Open calculator to show it was added
     };
 
     const handleSubmit = async () => {
@@ -95,6 +133,9 @@ export default function Home() {
             images: images,
             entry_price: parseFloat(formData.tradeEntry) || 0,
             exit_price: parseFloat(formData.tradeExit) || 0,
+            // New Payload Fields
+            stop_loss: parseFloat(formData.tradeSL) || 0,
+            target_price: parseFloat(formData.tradeTarget) || 0,
             lots: Number(formData.tradeLots) || 0,
             pnl: parseFloat(calculatePnL()),
             market_trend: formData.marketTrend
@@ -110,6 +151,7 @@ export default function Home() {
             setEditingId(null);
             setImages([]);
             
+            // Reset Form
             setFormData(prev => ({ 
                 ...prev, 
                 liveNotes: '', 
@@ -120,7 +162,9 @@ export default function Home() {
                 planNotes: '',
                 keyLevel: '',
                 planBias: 'Neutral',
-                mistakes: []
+                mistakes: [],
+                // Reset new trade fields
+                tradeEntry: '', tradeExit: '', tradeSL: '', tradeTarget: '', tradeRisk: ''
             }));
         } catch (e) { alert("Error saving entry"); }
     };
@@ -154,9 +198,25 @@ export default function Home() {
                  </button>
             </div>
 
-            <LeftPanel currentMode={currentMode} setCurrentMode={setCurrentMode} formData={formData} setFormData={setFormData} handleSubmit={handleSubmit} editingId={editingId} setEditingId={setEditingId} images={images} setImages={setImages} setShowChecklist={setShowChecklist} downloadSql={downloadSql} clearDb={clearDb} categories={categories} refreshCategories={fetchCategories} />
+            <LeftPanel 
+                currentMode={currentMode} 
+                setCurrentMode={setCurrentMode} 
+                formData={formData} 
+                setFormData={setFormData} 
+                handleSubmit={handleSubmit} 
+                editingId={editingId} 
+                setEditingId={setEditingId} 
+                images={images} 
+                setImages={setImages} 
+                setShowChecklist={setShowChecklist} 
+                downloadSql={downloadSql} 
+                clearDb={clearDb} 
+                categories={categories} 
+                refreshCategories={fetchCategories}
+                // Pass the bridge function
+                addToCalculator={addToCalculator}
+            />
             
-            {/* PASSING NEW PROPS TO RIGHT PANEL */}
             <RightPanel 
                 entries={entries} 
                 deleteEntry={deleteEntry} 
@@ -168,7 +228,14 @@ export default function Home() {
             />
             
             <ChecklistModal isOpen={showChecklist} onClose={() => setShowChecklist(false)} />
-            <CompoundingCalculator isOpen={showCalculator} onClose={() => setShowCalculator(false)} />
+            
+            {/* Pass lifted state to calculator */}
+            <CompoundingCalculator 
+                isOpen={showCalculator} 
+                onClose={() => setShowCalculator(false)}
+                entries={calcEntries}
+                setEntries={setCalcEntries}
+            />
         </div>
     );
 }

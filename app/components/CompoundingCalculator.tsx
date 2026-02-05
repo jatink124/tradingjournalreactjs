@@ -1,18 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { CalculatorEntry } from '../types';
 
 interface CompoundingCalculatorProps {
     isOpen: boolean;
     onClose: () => void;
+    // NEW: Receives data from the main app (Bridge)
+    entries: CalculatorEntry[];
+    setEntries: React.Dispatch<React.SetStateAction<CalculatorEntry[]>>;
 }
-
-type ManualEntry = {
-    id: number;
-    val: number;
-    isPercentage: boolean;
-    note: string;
-};
 
 type SimulationRow = {
     index: number;
@@ -23,13 +20,12 @@ type SimulationRow = {
     drawdown: number;
 };
 
-export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculatorProps) {
+export function CompoundingCalculator({ isOpen, onClose, entries, setEntries }: CompoundingCalculatorProps) {
     // --- TABS: 'manual' | 'projection' | 'goal' ---
     const [mode, setMode] = useState<'manual' | 'projection' | 'goal'>('manual');
     const [initialCapital, setInitialCapital] = useState<number>(3000);
 
-    // --- MANUAL MODE STATE ---
-    const [manualEntries, setManualEntries] = useState<ManualEntry[]>([]);
+    // --- MANUAL MODE INPUTS ---
     const [newVal, setNewVal] = useState('');
     const [isNewValPct, setIsNewValPct] = useState(false);
     const [newNote, setNewNote] = useState('');
@@ -43,13 +39,13 @@ export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculator
     const [simLossPct, setSimLossPct] = useState(1);
     const [simResults, setSimResults] = useState<SimulationRow[]>([]);
 
-    // --- GOAL PLANNER STATE (New Feature) ---
-    const [targetCapital, setTargetCapital] = useState<number>(10000); // "Return of 10000"
+    // --- GOAL PLANNER STATE ---
+    const [targetCapital, setTargetCapital] = useState<number>(10000);
     const [goalDays, setGoalDays] = useState<number>(20);
     const [goalWinRate, setGoalWinRate] = useState<number>(60);
-    const [goalLossPct, setGoalLossPct] = useState<number>(1); // User's preferred risk
+    const [goalLossPct, setGoalLossPct] = useState<number>(1); 
     
-    // Calculated requirements
+    // Calculated requirements for Goal
     const [reqDailyPct, setReqDailyPct] = useState(0);
     const [reqWinPct, setReqWinPct] = useState(0);
 
@@ -71,12 +67,13 @@ export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculator
     if (!isOpen) return null;
 
     // ==========================================
-    // 1. LOGIC: MANUAL JOURNAL
+    // 1. LOGIC: MANUAL JOURNAL (The Bridge)
     // ==========================================
     const addManualEntry = () => {
         const val = parseFloat(newVal);
         if (isNaN(val)) return;
-        setManualEntries([...manualEntries, { 
+        // Add to shared state (Bridge)
+        setEntries([...entries, { 
             id: Date.now(), 
             val, 
             isPercentage: isNewValPct,
@@ -87,12 +84,12 @@ export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculator
     };
 
     const removeManualEntry = (id: number) => {
-        setManualEntries(manualEntries.filter(e => e.id !== id));
+        setEntries(entries.filter(e => e.id !== id));
     };
 
     const calculateManual = () => {
         let currentCap = initialCapital;
-        return manualEntries.map((e, i) => {
+        return entries.map((e, i) => {
             let change = e.isPercentage ? currentCap * (e.val / 100) : e.val;
             currentCap += change;
             return { index: i + 1, change, result: currentCap, note: e.note };
@@ -145,14 +142,11 @@ export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculator
         if (goalDays <= 0 || initialCapital <= 0) return;
 
         // Step A: Calculate "Required Average Daily Growth" (CAGR)
-        // Formula: (Target / Initial)^(1/Days) - 1
         const ratio = targetCapital / initialCapital;
         const dailyRate = Math.pow(ratio, 1 / goalDays) - 1;
         setReqDailyPct(dailyRate * 100);
 
         // Step B: Solve for "Required Win %" (Reward) given a Risk %
-        // Equation: (1 + Daily)^1 = (1 + WinPct)^WinRate * (1 - LossPct)^LossRate
-        // Rearranged to find WinPct.
         const WR = goalWinRate / 100;
         const LR = 1 - WR;
         const LP = goalLossPct / 100; // Loss % as decimal (positive value)
@@ -261,7 +255,7 @@ export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculator
                                             <div style={{ color: row.change >= 0 ? 'var(--success)' : 'var(--danger)' }}>{row.change >= 0 ? '+' : ''}{row.change.toFixed(2)}</div>
                                             <div style={{ fontWeight: 'bold' }}>₹{row.result.toFixed(2)}</div>
                                             <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{row.note || '-'}</div>
-                                            <div style={{ textAlign: 'right' }}><i className="fas fa-trash" style={{ cursor: 'pointer', color: 'var(--danger)', opacity: 0.7 }} onClick={() => removeManualEntry(manualEntries[i].id)}></i></div>
+                                            <div style={{ textAlign: 'right' }}><i className="fas fa-trash" style={{ cursor: 'pointer', color: 'var(--danger)', opacity: 0.7 }} onClick={() => removeManualEntry(entries[i].id)}></i></div>
                                         </div>
                                     ))}
                                     {manualResults.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Add days to see projection</div>}
@@ -318,7 +312,7 @@ export function CompoundingCalculator({ isOpen, onClose }: CompoundingCalculator
                         </>
                     )}
 
-                    {/* --- TAB 3: GOAL PLANNER (Requested Feature) --- */}
+                    {/* --- TAB 3: GOAL PLANNER --- */}
                     {mode === 'goal' && (
                         <>
                             {/* GOAL INPUTS */}

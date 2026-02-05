@@ -10,7 +10,6 @@ interface RightPanelProps {
     setEditingId: (id: number | null) => void;
     setCurrentMode: (m: string) => void;
     setFormData: React.Dispatch<React.SetStateAction<JournalForm>>;
-    // NEW PROPS
     onRefresh: () => void;
     isLoading: boolean;
 }
@@ -22,7 +21,16 @@ const getFriendlyDate = (timestamp: number) => {
     return d.toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-// --- SUB-COMPONENT: EOD CARD WITH TABS ---
+// --- HELPER: Calculate R:R for display ---
+const getRR = (e: Entry) => {
+    if (!e.entry_price || !e.stop_loss || !e.target_price) return "-";
+    const risk = Math.abs(e.entry_price - e.stop_loss);
+    const reward = Math.abs(e.target_price - e.entry_price);
+    if (risk === 0) return "-";
+    return `1:${(reward / risk).toFixed(1)}`;
+};
+
+// --- SUB-COMPONENT: EOD CARD (Kept for 'Cards' View) ---
 const EODCard = ({ entry, onEdit, onDelete, onImageClick }: { entry: Entry, onEdit: (e: Entry) => void, onDelete: (id: number) => void, onImageClick: (idx: number) => void }) => {
     const [activeTab, setActiveTab] = useState<'mistakes' | 'plan'>('mistakes');
 
@@ -97,7 +105,7 @@ const EODCard = ({ entry, onEdit, onDelete, onImageClick }: { entry: Entry, onEd
                     </div>
                 )}
 
-                {/* SHARED GALLERY (Visible in both tabs if images exist) */}
+                {/* SHARED GALLERY */}
                 {entry.images.length > 0 && (
                     <div className="entry-gallery" style={{ marginTop: '15px', paddingTop: '10px', borderTop: '1px solid var(--border)' }}>
                         {entry.images.map((img, i) => (
@@ -119,7 +127,10 @@ const EODCard = ({ entry, onEdit, onDelete, onImageClick }: { entry: Entry, onEd
 // --- MAIN COMPONENT ---
 export default function RightPanel({ entries, deleteEntry, setEditingId, setCurrentMode, setFormData, onRefresh, isLoading }: RightPanelProps) {
     const [currentRightTab, setCurrentRightTab] = useState('live');
-    const [layout, setLayout] = useState(1);
+    
+    // NEW STATES FOR VIEW MODE
+    const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+    const [isMaximized, setIsMaximized] = useState(false);
     
     // Gallery State
     const [isGalleryOpen, setIsGalleryOpen] = useState(false);
@@ -180,6 +191,7 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
         updates.assetType = ['NIFTY', 'BTC'].includes(e.asset) ? e.asset : 'STOCK';
         updates.stockName = e.asset;
         updates.marketTrend = e.market_trend || 'Sideways';
+        updates.entryTime = new Date(e.id).toISOString().slice(0, 16);
         
         if (e.entry_type === 'live') {
             updates.liveNotes = e.notes;
@@ -189,6 +201,10 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
             updates.tradeExit = e.exit_price.toString();
             updates.tradeLots = e.lots;
             updates.tradeLearning = e.notes;
+            updates.tradeSL = e.stop_loss ? e.stop_loss.toString() : '';
+            updates.tradeTarget = e.target_price ? e.target_price.toString() : '';
+            // Calc risk if possible or leave blank
+            updates.tradeRisk = ''; 
         } else if (e.entry_type === 'eod') {
             updates.negNotes = e.neg_notes;
             updates.planBias = e.plan_bias;
@@ -206,22 +222,72 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
         setIsGalleryOpen(true);
     };
 
+    // --- RENDER TABLE ROW ---
+    const renderTableRow = (e: Entry, index: number) => {
+        const dateStr = new Date(e.id).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour:'2-digit', minute:'2-digit' });
+        const rr = getRR(e);
+
+        return (
+            <tr key={e.id} style={{borderBottom:'1px solid var(--border)', fontSize:'0.9rem'}}>
+                <td style={{padding:'10px', color:'var(--text-muted)'}}>{dateStr}</td>
+                <td style={{padding:'10px', fontWeight:'bold'}}>{e.asset}</td>
+                <td style={{padding:'10px'}}>{e.focus_area}</td>
+                <td style={{padding:'10px'}}>
+                    {e.market_trend === 'Uptrend' ? <span style={{color:'var(--success)'}}>🟢 Up</span> : 
+                     e.market_trend === 'Downtrend' ? <span style={{color:'var(--danger)'}}>🔴 Down</span> : 
+                     <span style={{color:'var(--accent)'}}>🟡 Side</span>}
+                </td>
+                {e.entry_type === 'trade' ? (
+                    <>
+                        <td style={{padding:'10px', fontFamily:'monospace'}}>{e.entry_price}</td>
+                        <td style={{padding:'10px', fontFamily:'monospace', fontWeight:'bold', color: e.pnl >= 0 ? 'var(--success)' : 'var(--danger)'}}>
+                            {e.pnl > 0 ? '+' : ''}{e.pnl}
+                        </td>
+                        <td style={{padding:'10px', fontSize:'0.8rem'}}>{rr}</td>
+                    </>
+                ) : (
+                    <td colSpan={3} style={{padding:'10px', fontStyle:'italic', opacity:0.6}}>{e.notes.substring(0, 50)}...</td>
+                )}
+                
+                <td style={{padding:'10px'}}>
+                    {e.images.length > 0 && <span title="Has Images" style={{cursor:'pointer', marginRight:'10px'}} onClick={() => openGallery(entryImageOffsets[index])}>📷 {e.images.length}</span>}
+                    {e.mistakes.length > 0 && <span title="Has Mistakes" style={{color:'var(--danger)', fontWeight:'bold'}}>🛑 {e.mistakes.length}</span>}
+                </td>
+                <td style={{padding:'10px'}}>
+                    <i className="fas fa-edit action-icon" onClick={() => handleEdit(e)} title="Edit"></i>
+                    <i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)} style={{marginLeft:'10px'}} title="Delete"></i>
+                </td>
+            </tr>
+        );
+    };
+
     return (
-        <div className="journal-feed">
+        <div 
+            className="journal-feed" 
+            style={isMaximized ? {
+                position:'fixed', top:0, left:0, width:'100vw', height:'100vh', zIndex:999, 
+                background:'#0f172a', margin:0, padding:'20px', borderRadius:0
+            } : {}}
+        >
             <div className="right-tabs-header">
                 {['live', 'trade', 'eod', 'source'].map(t => (
                     <div key={t} className={`rt-tab ${currentRightTab === t ? (t === 'eod' ? 'active-purple' : t === 'source' ? 'active-cyan' : t === 'trade' ? 'active-green' : 'active') : ''}`} onClick={() => setCurrentRightTab(t)}>{t.toUpperCase()}</div>
                 ))}
             </div>
-            <div className="filter-bar">
-                {/* REFRESH BUTTON ADDED HERE */}
-                <div 
-                    className="filter-group" 
-                    onClick={isLoading ? undefined : onRefresh} 
-                    style={{cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:'40px', background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:'4px'}}
-                    title="Refresh Data"
-                >
-                    <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} style={{color:'var(--cyan)'}}></i>
+            
+            <div className="filter-bar" style={{flexWrap:'wrap'}}>
+                {/* REFRESH & VIEW TOGGLE GROUP */}
+                <div style={{display:'flex', gap:'5px', borderRight:'1px solid var(--border)', paddingRight:'10px', marginRight:'5px'}}>
+                    <div className="filter-group" onClick={isLoading ? undefined : onRefresh} style={{cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:'36px', background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:'4px'}} title="Refresh Data">
+                        <i className={`fas fa-sync-alt ${isLoading ? 'fa-spin' : ''}`} style={{color:'var(--cyan)'}}></i>
+                    </div>
+                    {/* View Toggle */}
+                    <div className={`filter-group ${viewMode === 'cards' ? 'active-view' : ''}`} onClick={() => setViewMode('cards')} style={{cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:'36px', background: viewMode==='cards'?'var(--accent)':'var(--card-bg)', border:'1px solid var(--border)', borderRadius:'4px', color: viewMode==='cards'?'#fff':'var(--text-muted)'}} title="Card View">
+                        <i className="fas fa-th-large"></i>
+                    </div>
+                    <div className={`filter-group ${viewMode === 'table' ? 'active-view' : ''}`} onClick={() => setViewMode('table')} style={{cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:'36px', background: viewMode==='table'?'var(--accent)':'var(--card-bg)', border:'1px solid var(--border)', borderRadius:'4px', color: viewMode==='table'?'#fff':'var(--text-muted)'}} title="Grid/Table View">
+                        <i className="fas fa-table"></i>
+                    </div>
                 </div>
 
                 <div className="filter-group">
@@ -237,111 +303,143 @@ export default function RightPanel({ entries, deleteEntry, setEditingId, setCurr
                         {focusAreas.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
                 </div>
-                <div className="filter-group" style={{ minWidth: '150px' }}>
+                <div className="filter-group" style={{ flex: 1, minWidth: '150px' }}>
                     <label>Search</label>
-                    <input type="text" placeholder="剥 Search..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
+                    <input type="text" placeholder="Search..." value={filterSearch} onChange={(e) => setFilterSearch(e.target.value)} />
                 </div>
-                <div className="filter-group">
-                    <label>Layout</label>
-                    <div className="layout-controls">
-                        {[1, 2, 3].map(n => (<div key={n} className={`layout-btn ${layout === n ? 'active' : ''}`} onClick={() => setLayout(n)}>{n}</div>))}
-                    </div>
+                
+                {/* Maximize Toggle */}
+                <div className="filter-group" onClick={() => setIsMaximized(!isMaximized)} style={{cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', width:'36px', background:'var(--card-bg)', border:'1px solid var(--border)', borderRadius:'4px', marginLeft:'auto'}} title={isMaximized ? "Minimize" : "Full Screen"}>
+                    <i className={`fas ${isMaximized ? 'fa-compress' : 'fa-expand'}`}></i>
                 </div>
-                <div className="filter-group"><label>From</label><input type="date" value={filterDateStart} onChange={(e) => setFilterDateStart(e.target.value)} /></div>
-                <div className="filter-group"><label>To</label><input type="date" value={filterDateEnd} onChange={(e) => setFilterDateEnd(e.target.value)} /></div>
             </div>
 
             {/* LOADING OVERLAY */}
             {isLoading && (
                 <div style={{padding:'20px', textAlign:'center', color:'var(--text-muted)'}}>
-                    <i className="fas fa-circle-notch fa-spin"></i> Loading journal data...
+                    <i className="fas fa-circle-notch fa-spin"></i> Loading...
                 </div>
             )}
 
             <div className="right-content-area" style={{opacity: isLoading ? 0.5 : 1}}>
-                <div className={`feed-grid layout-${layout}`}>
-                    {filteredEntries.map((e, index) => {
-                        const currentDateStr = getFriendlyDate(e.id);
-                        const showDateHeader = currentDateStr !== lastDateStr;
-                        if (showDateHeader) lastDateStr = currentDateStr;
-                        const imageBaseIndex = entryImageOffsets[index];
+                
+                {/* --- TABLE VIEW --- */}
+                {viewMode === 'table' ? (
+                    <div style={{overflowX:'auto', background:'var(--card-bg)', borderRadius:'8px', border:'1px solid var(--border)'}}>
+                        <table style={{width:'100%', borderCollapse:'collapse', minWidth:'800px'}}>
+                            <thead style={{background:'rgba(255,255,255,0.05)', textAlign:'left', borderBottom:'2px solid var(--border)'}}>
+                                <tr>
+                                    <th style={{padding:'12px'}}>Date</th>
+                                    <th style={{padding:'12px'}}>Asset</th>
+                                    <th style={{padding:'12px'}}>Focus/Strat</th>
+                                    <th style={{padding:'12px'}}>Trend</th>
+                                    {currentRightTab === 'trade' ? (
+                                        <>
+                                            <th style={{padding:'12px'}}>Entry</th>
+                                            <th style={{padding:'12px'}}>P&L</th>
+                                            <th style={{padding:'12px'}}>R:R</th>
+                                        </>
+                                    ) : (
+                                        <th style={{padding:'12px'}} colSpan={3}>Note Preview</th>
+                                    )}
+                                    <th style={{padding:'12px'}}>Media</th>
+                                    <th style={{padding:'12px'}}>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {filteredEntries.length === 0 ? (
+                                    <tr><td colSpan={9} style={{padding:'20px', textAlign:'center', color:'var(--text-muted)'}}>No entries found matching filters.</td></tr>
+                                ) : (
+                                    filteredEntries.map((e, i) => renderTableRow(e, i))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    /* --- CARDS VIEW (Existing) --- */
+                    <div className={`feed-grid layout-1`}>
+                        {filteredEntries.map((e, index) => {
+                            const currentDateStr = getFriendlyDate(e.id);
+                            const showDateHeader = currentDateStr !== lastDateStr;
+                            if (showDateHeader) lastDateStr = currentDateStr;
+                            const imageBaseIndex = entryImageOffsets[index];
 
-                        return (
-                            <div key={e.id} style={{ display: 'contents' }}>
-                                {showDateHeader && <div className="date-header"><i className="far fa-calendar-alt"></i> {currentDateStr}</div>}
-                                
-                                {e.entry_type === 'live' && (
-                                    <div className="live-card">
-                                        <div className="live-time">{e.timestamp_str.split(',')[1]?.trim()}</div>
-                                        <div className="live-content">
-                                            <div className="live-header" style={{padding:'10px 15px', display:'flex', justifyContent:'space-between'}}>
-                                                <div style={{ fontWeight: 'bold' }}>{e.asset}</div>
-                                                <div style={{ display: 'flex', gap: '5px' }}>
-                                                    <div className="live-badge">{e.focus_area}</div>
-                                                    <div className="live-badge" style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}>{e.market_trend === 'Uptrend' ? '泙' : e.market_trend === 'Downtrend' ? '閥' : '泯'}</div>
+                            return (
+                                <div key={e.id} style={{ display: 'contents' }}>
+                                    {showDateHeader && <div className="date-header"><i className="far fa-calendar-alt"></i> {currentDateStr}</div>}
+                                    
+                                    {e.entry_type === 'live' && (
+                                        <div className="live-card">
+                                            <div className="live-time">{e.timestamp_str.split(',')[1]?.trim()}</div>
+                                            <div className="live-content">
+                                                <div className="live-header" style={{padding:'10px 15px', display:'flex', justifyContent:'space-between'}}>
+                                                    <div style={{ fontWeight: 'bold' }}>{e.asset}</div>
+                                                    <div style={{ display: 'flex', gap: '5px' }}>
+                                                        <div className="live-badge">{e.focus_area}</div>
+                                                        <div className="live-badge" style={{ background: 'rgba(255,255,255,0.1)', color: '#fff' }}>{e.market_trend === 'Uptrend' ? '📈' : e.market_trend === 'Downtrend' ? '📉' : '🟡'}</div>
+                                                    </div>
+                                                </div>
+                                                <div style={{ color: '#cbd5e1', fontSize: '0.9rem', padding:'0 15px' }}>{e.notes}</div>
+                                                <div className="entry-gallery" style={{padding:'0 15px'}}>
+                                                    {e.images.map((img, i) => (<img key={i} src={img} className="entry-img" onClick={() => openGallery(imageBaseIndex + i)} />))}
+                                                </div>
+                                                <div className="action-bar"><i className="fas fa-edit action-icon" onClick={() => handleEdit(e)}></i><i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)} style={{marginLeft:'10px'}}></i></div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {e.entry_type === 'trade' && (
+                                        <div className="trade-card">
+                                            <div className="trade-header">
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <div style={{ fontWeight: 'bold' }}>{e.asset}</div>
+                                                    <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{e.market_trend}</span>
+                                                </div>
+                                                <div className={`trade-pnl ${e.pnl >= 0 ? 'pnl-green' : 'pnl-red'}`}>{e.pnl}</div>
+                                            </div>
+                                            <div className="trade-body">
+                                                <div className="trade-grid">
+                                                    <div className="trade-stat"><span className="ts-lbl">Entry</span><span className="ts-val">{e.entry_price}</span></div>
+                                                    <div className="trade-stat"><span className="ts-lbl">Exit</span><span className="ts-val">{e.exit_price}</span></div>
+                                                    <div className="trade-stat"><span className="ts-lbl">R:R</span><span className="ts-val" style={{color:'var(--accent)'}}>{getRR(e)}</span></div>
+                                                </div>
+                                                <div className="trade-learning">{e.notes}</div>
+                                                <div className="entry-gallery">
+                                                    {e.images.map((img, i) => (<img key={i} src={img} className="entry-img" onClick={() => openGallery(imageBaseIndex + i)} />))}
                                                 </div>
                                             </div>
-                                            <div style={{ color: '#cbd5e1', fontSize: '0.9rem', padding:'0 15px' }}>{e.notes}</div>
-                                            <div className="entry-gallery" style={{padding:'0 15px'}}>
-                                                {e.images.map((img, i) => (<img key={i} src={img} className="entry-img" onClick={() => openGallery(imageBaseIndex + i)} />))}
-                                            </div>
-                                            <div className="action-bar"><i className="fas fa-edit action-icon" onClick={() => handleEdit(e)}></i><i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)} style={{marginLeft:'10px'}}></i></div>
+                                            <div className="action-bar"><i className="fas fa-edit action-icon" onClick={() => handleEdit(e)}></i><i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)}></i></div>
                                         </div>
-                                    </div>
-                                )}
+                                    )}
 
-                                {e.entry_type === 'trade' && (
-                                    <div className="trade-card">
-                                        <div className="trade-header">
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                <div style={{ fontWeight: 'bold' }}>{e.asset}</div>
-                                                <span style={{ fontSize: '0.8rem', opacity: 0.8 }}>{e.market_trend === 'Uptrend' ? '泙' : e.market_trend === 'Downtrend' ? '閥' : '泯'}</span>
-                                            </div>
-                                            <div className={`trade-pnl ${e.pnl >= 0 ? 'pnl-green' : 'pnl-red'}`}>{e.pnl}</div>
-                                        </div>
-                                        <div className="trade-body">
-                                            <div className="trade-grid">
-                                                <div className="trade-stat"><span className="ts-lbl">Entry</span><span className="ts-val">{e.entry_price}</span></div>
-                                                <div className="trade-stat"><span className="ts-lbl">Exit</span><span className="ts-val">{e.exit_price}</span></div>
-                                                <div className="trade-stat"><span className="ts-lbl">Lots</span><span className="ts-val">{e.lots}</span></div>
-                                            </div>
-                                            <div className="trade-learning">{e.notes}</div>
-                                            <div className="entry-gallery">
-                                                {e.images.map((img, i) => (<img key={i} src={img} className="entry-img" onClick={() => openGallery(imageBaseIndex + i)} />))}
-                                            </div>
-                                        </div>
-                                        <div className="action-bar"><i className="fas fa-edit action-icon" onClick={() => handleEdit(e)}></i><i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)}></i></div>
-                                    </div>
-                                )}
+                                    {e.entry_type === 'eod' && (
+                                        <EODCard 
+                                            entry={e} 
+                                            onEdit={handleEdit} 
+                                            onDelete={deleteEntry} 
+                                            onImageClick={(i) => openGallery(imageBaseIndex + i)} 
+                                        />
+                                    )}
 
-                                {/* EOD CARD WITH TABS */}
-                                {e.entry_type === 'eod' && (
-                                    <EODCard 
-                                        entry={e} 
-                                        onEdit={handleEdit} 
-                                        onDelete={deleteEntry} 
-                                        onImageClick={(i) => openGallery(imageBaseIndex + i)} 
-                                    />
-                                )}
-
-                                {e.entry_type === 'source' && (
-                                    <div className="resource-card">
-                                        <div style={{ padding:'10px 15px', display: 'flex', justifyContent: 'space-between' }}>
-                                            <div style={{ fontWeight: 'bold', color:'var(--cyan)' }}><i className="fas fa-globe"></i> {e.asset} Resource</div>
-                                        </div>
-                                        <div style={{ padding:'0 15px 15px 15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                            {(() => { try { return JSON.parse(e.notes || "[]").map((f: any, i: number) => (<div key={i} className="resource-item"><span className="resource-label">{f.k}</span><span className="resource-val">{f.v}</span></div>)); } catch (er) { return null; } })()}
-                                            <div className="entry-gallery">
-                                                {e.images.map((img, i) => (<img key={i} src={img} className="entry-img" onClick={() => openGallery(imageBaseIndex + i)} />))}
+                                    {e.entry_type === 'source' && (
+                                        <div className="resource-card">
+                                            <div style={{ padding:'10px 15px', display: 'flex', justifyContent: 'space-between' }}>
+                                                <div style={{ fontWeight: 'bold', color:'var(--cyan)' }}><i className="fas fa-globe"></i> {e.asset} Resource</div>
                                             </div>
+                                            <div style={{ padding:'0 15px 15px 15px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                {(() => { try { return JSON.parse(e.notes || "[]").map((f: any, i: number) => (<div key={i} className="resource-item"><span className="resource-label">{f.k}</span><span className="resource-val">{f.v}</span></div>)); } catch (er) { return null; } })()}
+                                                <div className="entry-gallery">
+                                                    {e.images.map((img, i) => (<img key={i} src={img} className="entry-img" onClick={() => openGallery(imageBaseIndex + i)} />))}
+                                                </div>
+                                            </div>
+                                            <div className="action-bar"><i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)}></i></div>
                                         </div>
-                                        <div className="action-bar"><i className="fas fa-trash action-icon del" onClick={() => deleteEntry(e.id)}></i></div>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
             <GalleryModal isOpen={isGalleryOpen} initialIndex={galleryStartIndex} items={galleryItems} onClose={() => setIsGalleryOpen(false)} />
         </div>
