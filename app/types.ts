@@ -1,7 +1,3 @@
-{
-type: uploaded file
-fileName: tradingjournalreactjs - Copy/app/types.ts
-fullContent:
 // app/types.ts
 
 export type Entry = {
@@ -25,10 +21,12 @@ export type Entry = {
     pnl: number;
     market_trend: string;
 };
+
 export type MistakeItem = {
     id: number;
     name: string;
 };
+
 export type Category = {
     id: number;
     name: string;
@@ -77,4 +75,3 @@ export type CalculatorEntry = {
     isPercentage: boolean;
     note: string;
 };
-}

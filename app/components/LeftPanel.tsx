@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { JournalForm, Category, MistakeItem } from '../types';
 
 // CONFIGURATION
@@ -122,7 +122,7 @@ export default function LeftPanel({
     const suggestedLots = calculateSuggestedLots();
 
     const handleInputChange = (field: keyof JournalForm, value: any) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
+        setFormData((prev: JournalForm) => ({ ...prev, [field]: value }));
     };
 
     const applySuggestedLots = () => {
@@ -145,7 +145,7 @@ export default function LeftPanel({
                 });
                 if(!res.ok) throw new Error("Failed");
                 refreshCategories();
-                setFormData(prev => ({ ...prev, focusArea: newCat }));
+                setFormData((prev: JournalForm) => ({ ...prev, focusArea: newCat }));
             } catch (e) { alert("Failed to add category"); }
         }
     };
@@ -156,15 +156,15 @@ export default function LeftPanel({
             try {
                 await fetch(`/api/categories?id=${cat.id}`, { method: 'DELETE' });
                 refreshCategories();
-                setFormData(prev => ({ ...prev, focusArea: categories[0]?.name || '' }));
+                setFormData((prev: JournalForm) => ({ ...prev, focusArea: categories[0]?.name || '' }));
             } catch (e) { alert("Failed to delete category"); }
         }
     };
 
     const toggleMistake = (mistakeName: string) => {
-        setFormData(prev => {
+        setFormData((prev: JournalForm) => {
             const exists = prev.mistakes.includes(mistakeName);
-            return { ...prev, mistakes: exists ? prev.mistakes.filter(m => m !== mistakeName) : [...prev.mistakes, mistakeName] };
+            return { ...prev, mistakes: exists ? prev.mistakes.filter((m: string) => m !== mistakeName) : [...prev.mistakes, mistakeName] };
         });
     };
 
@@ -174,11 +174,11 @@ export default function LeftPanel({
         const files = Array.from(e.target.files);
         try {
             const uploadPromises = files.map(file => {
-                const formData = new FormData();
-                formData.append('file', file);
-                formData.append('upload_preset', UPLOAD_PRESET);
+                const uploadData = new FormData();
+                uploadData.append('file', file);
+                uploadData.append('upload_preset', UPLOAD_PRESET);
                 return fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
-                    method: 'POST', body: formData
+                    method: 'POST', body: uploadData
                 }).then(res => res.json()).then(data => {
                     if (data.secure_url) return data.secure_url;
                     throw new Error("Upload failed");
@@ -191,12 +191,16 @@ export default function LeftPanel({
     };
 
     const handleResourceRowChange = (index: number, key: 'k' | 'v', val: string) => {
-        const newRows = [...formData.resourceRows];
-        newRows[index][key] = val;
-        setFormData(prev => ({ ...prev, resourceRows: newRows }));
+        setFormData((prev: JournalForm) => {
+            const newRows = [...prev.resourceRows];
+            const row = newRows[index];
+            if (!row) return prev;
+            newRows[index] = { ...row, [key]: val };
+            return { ...prev, resourceRows: newRows };
+        });
     };
-    const addResourceRow = () => setFormData(prev => ({ ...prev, resourceRows: [...prev.resourceRows, { k: '', v: '' }] }));
-    const removeResourceRow = (index: number) => setFormData(prev => ({ ...prev, resourceRows: prev.resourceRows.filter((_, i) => i !== index) }));
+    const addResourceRow = () => setFormData((prev: JournalForm) => ({ ...prev, resourceRows: [...prev.resourceRows, { k: '', v: '' }] }));
+    const removeResourceRow = (index: number) => setFormData((prev: JournalForm) => ({ ...prev, resourceRows: prev.resourceRows.filter((_: any, i: number) => i !== index) }));
 
     return (
         <div className="input-panel">
@@ -361,7 +365,7 @@ export default function LeftPanel({
             {currentMode === 'source' && (
                 <div>
                     <h2 style={{ color: 'var(--cyan)' }}>External Insights</h2>
-                    {formData.resourceRows.map((row, i) => (
+                    {formData.resourceRows.map((row: any, i: number) => (
                         <div className="dyn-row" key={i}>
                             <input type="text" placeholder="Source" value={row.k} onChange={(e) => handleResourceRowChange(i, 'k', e.target.value)} />
                             <input type="text" placeholder="Info" value={row.v} onChange={(e) => handleResourceRowChange(i, 'v', e.target.value)} />
