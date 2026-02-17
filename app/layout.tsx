@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { GlobalProvider } from './context/GlobalContext';
+import LayoutContent from "./components/LayoutContent";
 
 export const metadata: Metadata = {
-  title: "Nifty Master Journal",
-  description: "Trading Journal Analytics",
+  title: "Trading Journal",
+  description: "Track your trades and psychology",
 };
 
 export default function RootLayout({
@@ -12,12 +14,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // FIX: Added suppressHydrationWarning to ignore browser extension injections
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <head>
-        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" />
       </head>
-      <body>{children}</body>
+      <body>
+        <GlobalProvider>
+            <LayoutContent>{children}</LayoutContent>
+        </GlobalProvider>
+      </body>
     </html>
   );
 }

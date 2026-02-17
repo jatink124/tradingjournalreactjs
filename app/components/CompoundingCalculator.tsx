@@ -1,380 +1,208 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useGlobal } from '../context/GlobalContext';
 import { CalculatorEntry } from '../types';
 
-interface CompoundingCalculatorProps {
+interface CalculatorProps {
     isOpen: boolean;
     onClose: () => void;
-    // NEW: Receives data from the main app (Bridge)
     entries: CalculatorEntry[];
     setEntries: React.Dispatch<React.SetStateAction<CalculatorEntry[]>>;
 }
 
-type SimulationRow = {
-    index: number;
-    type: 'win' | 'loss' | 'fixed';
-    changePct: number;
-    change: number;
-    result: number;
-    drawdown: number;
-};
-
-export function CompoundingCalculator({ isOpen, onClose, entries, setEntries }: CompoundingCalculatorProps) {
-    // --- TABS: 'manual' | 'projection' | 'goal' ---
-    const [mode, setMode] = useState<'manual' | 'projection' | 'goal'>('manual');
-    const [initialCapital, setInitialCapital] = useState<number>(3000);
-
-    // --- MANUAL MODE INPUTS ---
-    const [newVal, setNewVal] = useState('');
-    const [isNewValPct, setIsNewValPct] = useState(false);
-    const [newNote, setNewNote] = useState('');
-
-    // --- PROJECTION MODE STATE ---
-    const [projType, setProjType] = useState<'constant' | 'variable'>('constant');
-    const [days, setDays] = useState(20);
-    const [dailyPct, setDailyPct] = useState(2); // Constant mode
-    const [simWinRate, setSimWinRate] = useState(60); 
-    const [simWinPct, setSimWinPct] = useState(2);    
-    const [simLossPct, setSimLossPct] = useState(1);
-    const [simResults, setSimResults] = useState<SimulationRow[]>([]);
-
-    // --- GOAL PLANNER STATE ---
-    const [targetCapital, setTargetCapital] = useState<number>(10000);
-    const [goalDays, setGoalDays] = useState<number>(20);
-    const [goalWinRate, setGoalWinRate] = useState<number>(60);
-    const [goalLossPct, setGoalLossPct] = useState<number>(1); 
+export function CompoundingCalculator({ isOpen, onClose, entries, setEntries }: CalculatorProps) {
+    const { theme } = useGlobal();
+    const [initialCapital, setInitialCapital] = useState(100000);
+    const [mode, setMode] = useState<'manual' | 'projection'>('manual');
     
-    // Calculated requirements for Goal
-    const [reqDailyPct, setReqDailyPct] = useState(0);
-    const [reqWinPct, setReqWinPct] = useState(0);
-
-    // --- EFFECT: Recalculate when inputs change ---
-    useEffect(() => {
-        if (!isOpen) return;
-
-        if (mode === 'projection') {
-            runSimulation();
-        } else if (mode === 'goal') {
-            calculateGoal();
-        }
-    }, [
-        initialCapital, days, dailyPct, projType, simWinRate, simWinPct, simLossPct, // Projection deps
-        targetCapital, goalDays, goalWinRate, goalLossPct,                           // Goal deps
-        mode, isOpen
-    ]);
+    // Projection State
+    const [projDays, setProjDays] = useState(30);
+    const [projWinRate, setProjWinRate] = useState(60);
+    const [projRR, setProjRR] = useState(2);
+    const [projRisk, setProjRisk] = useState(1); // Risk per trade %
 
     if (!isOpen) return null;
 
-    // ==========================================
-    // 1. LOGIC: MANUAL JOURNAL (The Bridge)
-    // ==========================================
-    const addManualEntry = () => {
-        const val = parseFloat(newVal);
-        if (isNaN(val)) return;
-        // Add to shared state (Bridge)
-        setEntries([...entries, { 
-            id: Date.now(), 
-            val, 
-            isPercentage: isNewValPct,
-            note: newNote 
-        }]);
-        setNewVal('');
-        setNewNote('');
+    // --- CALCULATIONS ---
+    const currentBalance = entries.reduce((acc, curr) => {
+        return curr.isPercentage ? acc * (1 + curr.val / 100) : acc + curr.val;
+    }, initialCapital);
+
+    const profit = currentBalance - initialCapital;
+    const roi = ((profit / initialCapital) * 100).toFixed(2);
+
+    const addManualEntry = (val: number, isPercentage: boolean) => {
+        setEntries([...entries, { id: Date.now(), val, isPercentage, note: 'Manual' }]);
     };
 
-    const removeManualEntry = (id: number) => {
-        setEntries(entries.filter(e => e.id !== id));
+    const clearEntries = () => {
+        if(confirm("Clear calculation history?")) setEntries([]);
     };
 
-    const calculateManual = () => {
-        let currentCap = initialCapital;
-        return entries.map((e, i) => {
-            let change = e.isPercentage ? currentCap * (e.val / 100) : e.val;
-            currentCap += change;
-            return { index: i + 1, change, result: currentCap, note: e.note };
-        });
-    };
-    
-    const manualResults = calculateManual();
-    const finalManualCap = manualResults.length > 0 ? manualResults[manualResults.length - 1].result : initialCapital;
-
-    // ==========================================
-    // 2. LOGIC: PROJECTION (SIMULATION)
-    // ==========================================
-    const runSimulation = () => {
-        let currentCap = initialCapital;
-        let peakCap = initialCapital;
-        const rows: SimulationRow[] = [];
-
-        for (let i = 1; i <= days; i++) {
-            let changePct = 0;
-            let type: 'fixed' | 'win' | 'loss' = 'fixed';
-
-            if (projType === 'constant') {
-                changePct = dailyPct;
-                type = 'fixed';
-            } else {
-                const isWin = Math.random() * 100 < simWinRate;
-                changePct = isWin ? simWinPct : -simLossPct;
-                type = isWin ? 'win' : 'loss';
-            }
-
-            const change = currentCap * (changePct / 100);
-            currentCap += change;
-            
-            // Drawdown Calc
-            if (currentCap > peakCap) peakCap = currentCap;
-            const drawdown = ((peakCap - currentCap) / peakCap) * 100;
-
-            rows.push({ index: i, type, changePct, change, result: currentCap, drawdown });
-        }
-        setSimResults(rows);
-    };
-
-    const finalSimCap = simResults.length > 0 ? simResults[simResults.length - 1].result : initialCapital;
-    const simROI = initialCapital > 0 ? ((finalSimCap - initialCapital) / initialCapital) * 100 : 0;
-
-    // ==========================================
-    // 3. LOGIC: GOAL PLANNER
-    // ==========================================
-    const calculateGoal = () => {
-        if (goalDays <= 0 || initialCapital <= 0) return;
-
-        // Step A: Calculate "Required Average Daily Growth" (CAGR)
-        const ratio = targetCapital / initialCapital;
-        const dailyRate = Math.pow(ratio, 1 / goalDays) - 1;
-        setReqDailyPct(dailyRate * 100);
-
-        // Step B: Solve for "Required Win %" (Reward) given a Risk %
-        const WR = goalWinRate / 100;
-        const LR = 1 - WR;
-        const LP = goalLossPct / 100; // Loss % as decimal (positive value)
-
-        if (WR > 0) {
-            const log1PlusDaily = Math.log(1 + dailyRate);
-            const log1MinusLoss = Math.log(1 - LP);
-            
-            // Algebra: ln(1+W) = [ ln(1+D) - LR*ln(1-L) ] / WR
-            const numerator = log1PlusDaily - (LR * log1MinusLoss);
-            const log1PlusWin = numerator / WR;
-            
-            const requiredWinDecimal = Math.exp(log1PlusWin) - 1;
-            setReqWinPct(requiredWinDecimal * 100);
-        } else {
-            setReqWinPct(0);
-        }
-    };
+    // Projection Simulation
+    const projectionData = [];
+    let simBalance = initialCapital;
+    for(let i=1; i<=projDays; i++) {
+        const isWin = i % (100/projWinRate) <= 1; // Simplified deterministic distribution
+        const outcome = isWin ? (simBalance * (projRisk/100) * projRR) : -(simBalance * (projRisk/100));
+        simBalance += outcome;
+        projectionData.push({ day: i, balance: simBalance, outcome });
+    }
 
     return (
-        <div className="modal" style={{ display: 'flex' }} onClick={onClose}>
-            <div className="modal-content" onClick={e => e.stopPropagation()} style={{
-                background: 'var(--card-bg)', 
-                width: '750px', 
-                maxWidth: '95%', 
-                borderRadius: '12px', 
-                border: '1px solid var(--border)', 
-                display: 'flex', 
-                flexDirection: 'column',
-                maxHeight: '90vh'
-            }}>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm" onClick={onClose}>
+            <div 
+                className="bg-[var(--card)] border border-[var(--card-border)] w-full max-w-6xl h-[90vh] rounded-xl shadow-2xl flex flex-col overflow-hidden" 
+                onClick={e => e.stopPropagation()}
+                data-theme={theme}
+            >
                 {/* HEADER */}
-                <div style={{ padding: '20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <h2 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--accent)' }}><i className="fas fa-calculator"></i> Compounding Calc</h2>
-                    <button onClick={onClose} style={{ background: 'transparent', fontSize: '1.2rem', padding: 0, color: 'var(--text-muted)' }}>&times;</button>
+                <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--card-border)] bg-[var(--background)] shrink-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-white font-bold">
+                            <i className="fas fa-calculator"></i>
+                        </div>
+                        <div>
+                            <h2 className="text-lg font-bold text-[var(--foreground)]">Compounding Engine</h2>
+                            <p className="text-xs text-[var(--muted)]">Risk & Growth Simulator</p>
+                        </div>
+                    </div>
+                    <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-[var(--card-border)] flex items-center justify-center text-[var(--muted)] hover:text-[var(--foreground)] transition-colors">
+                        <i className="fas fa-times text-lg"></i>
+                    </button>
                 </div>
 
-                {/* TABS */}
-                <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', fontSize: '0.9rem' }}>
-                    <div onClick={() => setMode('manual')}
-                        style={{ flex: 1, textAlign: 'center', padding: '15px', cursor: 'pointer', background: mode === 'manual' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', color: mode === 'manual' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 'bold' }}>
-                        Sequence
-                    </div>
-                    <div onClick={() => setMode('projection')}
-                        style={{ flex: 1, textAlign: 'center', padding: '15px', cursor: 'pointer', background: mode === 'projection' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', color: mode === 'projection' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 'bold' }}>
-                        Projection
-                    </div>
-                    <div onClick={() => setMode('goal')}
-                        style={{ flex: 1, textAlign: 'center', padding: '15px', cursor: 'pointer', background: mode === 'goal' ? 'rgba(59, 130, 246, 0.1)' : 'transparent', color: mode === 'goal' ? 'var(--accent)' : 'var(--text-muted)', fontWeight: 'bold' }}>
-                        Goal Planner
-                    </div>
-                </div>
-
-                {/* BODY CONTENT */}
-                <div style={{ padding: '20px', overflowY: 'auto' }}>
+                {/* CONTENT GRID */}
+                <div className="flex-1 overflow-hidden grid grid-cols-1 lg:grid-cols-12">
                     
-                    {/* GLOBAL INPUT: Initial Capital */}
-                    <div style={{ marginBottom: '20px', background: 'rgba(0,0,0,0.2)', padding: '15px', borderRadius: '8px' }}>
-                        <label style={{color:'var(--text-muted)', fontSize:'0.85rem', display:'block', marginBottom:'5px'}}>Initial Investment (₹)</label>
-                        <input 
-                            type="number" 
-                            value={initialCapital} 
-                            onChange={e => setInitialCapital(parseFloat(e.target.value) || 0)} 
-                            style={{ fontSize: '1.2rem', fontWeight: 'bold', color: 'var(--success)', width:'100%', background:'transparent', border:'none', borderBottom:'1px solid var(--border)', padding:'5px' }} 
-                        />
-                    </div>
+                    {/* LEFT SIDE: CONTROLS (Scrollable on mobile, Fixed width on desktop) */}
+                    <div className="lg:col-span-4 bg-[var(--background)] border-b lg:border-b-0 lg:border-r border-[var(--card-border)] p-6 overflow-y-auto">
+                        
+                        {/* 1. Global Inputs */}
+                        <div className="mb-8">
+                            <label className="text-xs font-bold text-[var(--muted)] uppercase tracking-wide mb-2 block">Starting Capital</label>
+                            <div className="relative">
+                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[var(--muted)] text-lg">₹</span>
+                                <input 
+                                    type="number" 
+                                    value={initialCapital} 
+                                    onChange={e => setInitialCapital(Number(e.target.value))}
+                                    className="w-full bg-[var(--card)] border border-[var(--card-border)] rounded-lg py-3 pl-10 pr-4 text-xl font-mono font-bold text-[var(--foreground)] outline-none focus:border-[var(--accent)] transition-colors"
+                                />
+                            </div>
+                        </div>
 
-                    {/* --- TAB 1: MANUAL SEQUENCE --- */}
-                    {mode === 'manual' && (
-                        <>
-                            {/* INPUT FORM */}
-                            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', marginBottom: '20px' }}>
-                                <div style={{ flex: 1 }}>
-                                    <label>P/L Amount</label>
-                                    <input type="number" value={newVal} onChange={e => setNewVal(e.target.value)} placeholder="+200 or -100" />
-                                </div>
-                                <div style={{ width: '80px', display: 'flex', flexDirection: 'column', gap: '5px', marginBottom: '10px' }}>
-                                    <label style={{ fontSize: '0.7rem' }}>Type</label>
-                                    <div 
-                                        onClick={() => setIsNewValPct(!isNewValPct)}
-                                        style={{ cursor: 'pointer', background: '#0f172a', border: '1px solid var(--border)', padding: '8px', borderRadius: '4px', textAlign: 'center', fontSize: '0.8rem', color: isNewValPct ? 'var(--accent)' : 'var(--text-muted)' }}
-                                    >
-                                        {isNewValPct ? '%' : '₹'}
+                        {/* 2. Mode Toggle */}
+                        <div className="flex bg-[var(--card)] p-1 rounded-lg border border-[var(--card-border)] mb-6">
+                            <button 
+                                onClick={() => setMode('manual')}
+                                className={`flex-1 py-2 text-xs font-bold uppercase rounded-md transition-all ${mode === 'manual' ? 'bg-[var(--foreground)] text-[var(--background)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+                            >
+                                Manual Log
+                            </button>
+                            <button 
+                                onClick={() => setMode('projection')}
+                                className={`flex-1 py-2 text-xs font-bold uppercase rounded-md transition-all ${mode === 'projection' ? 'bg-[var(--foreground)] text-[var(--background)]' : 'text-[var(--muted)] hover:text-[var(--foreground)]'}`}
+                            >
+                                Simulator
+                            </button>
+                        </div>
+
+                        {/* 3. Dynamic Controls */}
+                        {mode === 'manual' ? (
+                            <div className="space-y-6 animate-in">
+                                <div className="p-4 rounded-lg bg-[var(--card)] border border-[var(--card-border)]">
+                                    <h3 className="text-xs font-bold text-[var(--muted)] uppercase mb-3">Quick Add</h3>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button onClick={() => addManualEntry(500, false)} className="btn-quick">+500</button>
+                                        <button onClick={() => addManualEntry(-500, false)} className="btn-quick text-red-400">-500</button>
+                                        <button onClick={() => addManualEntry(1, true)} className="btn-quick">+1%</button>
+                                        <button onClick={() => addManualEntry(-1, true)} className="btn-quick text-red-400">-1%</button>
+                                    </div>
+                                    <div className="mt-3 pt-3 border-t border-[var(--card-border)] flex gap-2">
+                                        <input id="customVal" type="number" placeholder="Custom" className="flex-1 bg-[var(--background)] border border-[var(--card-border)] rounded px-3 py-2 text-sm text-[var(--foreground)] outline-none" />
+                                        <button onClick={() => { const val = parseFloat((document.getElementById('customVal') as HTMLInputElement).value); if(val) addManualEntry(val, false); }} className="px-4 bg-[var(--accent)] text-white rounded font-bold hover:opacity-90">+</button>
                                     </div>
                                 </div>
-                                <div style={{ flex: 1 }}>
-                                    <label>Note</label>
-                                    <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Day 1..." />
-                                </div>
-                                <button onClick={addManualEntry} style={{ height: '42px', marginBottom: '10px', background: 'var(--accent)' }}>Add</button>
+                                <button onClick={clearEntries} className="w-full py-3 border border-red-500/30 text-red-500 rounded-lg text-sm font-bold hover:bg-red-500/10 transition-colors">Reset History</button>
                             </div>
+                        ) : (
+                            <div className="space-y-5 animate-in">
+                                <div><label className="label-sm">Days to Simulate</label><input type="range" min="10" max="365" value={projDays} onChange={e=>setProjDays(Number(e.target.value))} className="w-full" /><div className="text-right text-xs font-mono">{projDays} Days</div></div>
+                                <div><label className="label-sm">Win Rate (%)</label><input type="range" min="10" max="90" value={projWinRate} onChange={e=>setProjWinRate(Number(e.target.value))} className="w-full" /><div className="text-right text-xs font-mono">{projWinRate}%</div></div>
+                                <div><label className="label-sm">Risk Reward (1:X)</label><input type="range" min="1" max="5" step="0.5" value={projRR} onChange={e=>setProjRR(Number(e.target.value))} className="w-full" /><div className="text-right text-xs font-mono">1:{projRR}</div></div>
+                                <div><label className="label-sm">Risk Per Trade (%)</label><input type="range" min="0.5" max="5" step="0.5" value={projRisk} onChange={e=>setProjRisk(Number(e.target.value))} className="w-full" /><div className="text-right text-xs font-mono">{projRisk}%</div></div>
+                            </div>
+                        )}
+                    </div>
 
-                            {/* TABLE */}
-                            <div style={{ background: '#0f172a', borderRadius: '8px', border: '1px solid var(--border)', overflow: 'hidden' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr 1fr 1fr 0.5fr', padding: '10px', background: 'rgba(255,255,255,0.05)', fontWeight: 'bold', fontSize: '0.8rem' }}>
-                                    <div>#</div>
-                                    <div>P/L</div>
-                                    <div>Capital</div>
-                                    <div>Note</div>
-                                    <div></div>
-                                </div>
-                                <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                                    {manualResults.map((row, i) => (
-                                        <div key={i} style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr 1fr 1fr 0.5fr', padding: '10px', borderBottom: '1px solid var(--border)', fontSize: '0.9rem', alignItems: 'center' }}>
-                                            <div style={{ color: 'var(--text-muted)' }}>{row.index}</div>
-                                            <div style={{ color: row.change >= 0 ? 'var(--success)' : 'var(--danger)' }}>{row.change >= 0 ? '+' : ''}{row.change.toFixed(2)}</div>
-                                            <div style={{ fontWeight: 'bold' }}>₹{row.result.toFixed(2)}</div>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{row.note || '-'}</div>
-                                            <div style={{ textAlign: 'right' }}><i className="fas fa-trash" style={{ cursor: 'pointer', color: 'var(--danger)', opacity: 0.7 }} onClick={() => removeManualEntry(entries[i].id)}></i></div>
-                                        </div>
-                                    ))}
-                                    {manualResults.length === 0 && <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Add days to see projection</div>}
-                                </div>
-                                <div style={{ padding: '15px', background: 'rgba(59, 130, 246, 0.1)', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between' }}>
-                                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Net P&L: <span style={{ color: (finalManualCap - initialCapital) >= 0 ? 'var(--success)' : 'var(--danger)' }}>{(finalManualCap - initialCapital).toFixed(2)}</span></div>
-                                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>₹{finalManualCap.toFixed(2)}</div>
-                                </div>
-                            </div>
-                        </>
-                    )}
+                    {/* RIGHT SIDE: RESULTS (Scrollable) */}
+                    <div className="lg:col-span-8 bg-[var(--card)]/50 p-6 overflow-y-auto flex flex-col">
+                        
+                        {/* Stats Cards */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 shrink-0">
+                            <StatBox label="Current Balance" value={mode==='manual' ? currentBalance.toFixed(2) : projectionData[projectionData.length-1]?.balance.toFixed(2)} isMain />
+                            <StatBox label="Net Profit" value={mode==='manual' ? profit.toFixed(2) : (projectionData[projectionData.length-1]?.balance - initialCapital).toFixed(2)} />
+                            <StatBox label="Growth" value={mode==='manual' ? `${roi}%` : `${(((projectionData[projectionData.length-1]?.balance - initialCapital)/initialCapital)*100).toFixed(2)}%`} />
+                            <StatBox label="Trades" value={mode==='manual' ? entries.length : projDays} />
+                        </div>
 
-                    {/* --- TAB 2: PROJECTION --- */}
-                    {mode === 'projection' && (
-                        <>
-                            <div style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-                                <button onClick={() => setProjType('constant')} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: projType === 'constant' ? '1px solid var(--accent)' : '1px solid var(--border)', background: projType === 'constant' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: projType === 'constant' ? 'var(--accent)' : 'var(--text-muted)' }}>Constant Growth</button>
-                                <button onClick={() => setProjType('variable')} style={{ flex: 1, padding: '8px', borderRadius: '4px', border: projType === 'variable' ? '1px solid var(--accent)' : '1px solid var(--border)', background: projType === 'variable' ? 'rgba(59, 130, 246, 0.2)' : 'transparent', color: projType === 'variable' ? 'var(--accent)' : 'var(--text-muted)' }}>Win/Loss Sim</button>
+                        {/* DATA TABLE */}
+                        <div className="flex-1 border border-[var(--card-border)] rounded-lg overflow-hidden bg-[var(--background)] flex flex-col">
+                            <div className="grid grid-cols-4 bg-[var(--card)] border-b border-[var(--card-border)] p-3 text-[10px] font-bold text-[var(--muted)] uppercase tracking-wider shrink-0">
+                                <div># Sequence</div>
+                                <div>Type</div>
+                                <div className="text-right">Change</div>
+                                <div className="text-right">Balance</div>
                             </div>
-                            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                                <div style={{ flex: '1 1 80px' }}><label>Days</label><input type="number" value={days} onChange={e => setDays(parseInt(e.target.value) || 1)} /></div>
-                                {projType === 'constant' ? (
-                                    <div style={{ flex: '1 1 150px' }}><label>Daily Growth (%)</label><input type="number" value={dailyPct} onChange={e => setDailyPct(parseFloat(e.target.value) || 0)} /></div>
+                            
+                            <div className="overflow-y-auto flex-1 p-0">
+                                {mode === 'manual' ? (
+                                    entries.length === 0 ? 
+                                    <div className="h-full flex items-center justify-center text-[var(--muted)] text-sm italic">No entries logged yet.</div> :
+                                    [...entries].reverse().map((e, i) => {
+                                        // Calculate running balance for manual mode is complex in reverse, so we just show list
+                                        return (
+                                            <div key={e.id} className="grid grid-cols-4 p-3 border-b border-[var(--card-border)] hover:bg-[var(--card)] transition-colors text-sm">
+                                                <div className="font-mono text-[var(--muted)]">{entries.length - i}</div>
+                                                <div className="text-[var(--foreground)]">{e.note}</div>
+                                                <div className={`text-right font-mono font-bold ${e.val >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{e.val > 0 ? '+' : ''}{e.val}{e.isPercentage ? '%' : ''}</div>
+                                                <div className="text-right font-mono text-[var(--muted)]">-</div>
+                                            </div>
+                                        )
+                                    })
                                 ) : (
-                                    <>
-                                        <div style={{ flex: '1 1 80px' }}><label>Win Rate (%)</label><input type="number" value={simWinRate} onChange={e => setSimWinRate(parseFloat(e.target.value) || 50)} /></div>
-                                        <div style={{ flex: '1 1 80px' }}><label>Win (%)</label><input type="number" value={simWinPct} onChange={e => setSimWinPct(parseFloat(e.target.value) || 0)} style={{ borderColor: 'var(--success)' }} /></div>
-                                        <div style={{ flex: '1 1 80px' }}><label>Loss (%)</label><input type="number" value={simLossPct} onChange={e => setSimLossPct(parseFloat(e.target.value) || 0)} style={{ borderColor: 'var(--danger)' }} /></div>
-                                    </>
+                                    projectionData.map((d) => (
+                                        <div key={d.day} className="grid grid-cols-4 p-3 border-b border-[var(--card-border)] hover:bg-[var(--card)] transition-colors text-sm">
+                                            <div className="font-mono text-[var(--muted)]">Day {d.day}</div>
+                                            <div className="text-[var(--foreground)]">{d.outcome > 0 ? 'Win' : 'Loss'}</div>
+                                            <div className={`text-right font-mono font-bold ${d.outcome >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>{d.outcome > 0 ? '+' : ''}{d.outcome.toFixed(2)}</div>
+                                            <div className="text-right font-mono font-bold text-[var(--foreground)]">{d.balance.toFixed(2)}</div>
+                                        </div>
+                                    ))
                                 )}
                             </div>
-                            {projType === 'variable' && <button onClick={runSimulation} style={{ width: '100%', marginBottom: '15px', background: 'var(--accent)', color: 'white', padding: '8px', borderRadius: '6px' }}><i className="fas fa-random"></i> Re-Simulate</button>}
-                            
-                            <div style={{ background: '#0f172a', borderRadius: '8px', border: '1px solid var(--border)', overflow: 'hidden' }}>
-                                <div style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr 1fr 1fr 1fr', padding: '10px', background: 'rgba(255,255,255,0.05)', fontWeight: 'bold', fontSize: '0.8rem' }}>
-                                    <div>Day</div><div>Result</div><div>%</div><div>P/L</div><div>Cap</div>
-                                </div>
-                                <div style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                                    {simResults.map((row) => (
-                                        <div key={row.index} style={{ display: 'grid', gridTemplateColumns: '0.5fr 1fr 1fr 1fr 1fr', padding: '10px', borderBottom: '1px solid var(--border)', fontSize: '0.9rem', alignItems: 'center' }}>
-                                            <div style={{ color: 'var(--text-muted)' }}>{row.index}</div>
-                                            <div style={{ fontSize: '0.75rem', fontWeight:'bold', color: row.type==='win'?'var(--success)':row.type==='loss'?'var(--danger)':'var(--accent)' }}>{row.type.toUpperCase()}</div>
-                                            <div style={{ color: row.changePct >= 0 ? 'var(--success)' : 'var(--danger)' }}>{row.changePct >= 0 ? '+' : ''}{row.changePct}%</div>
-                                            <div style={{ color: row.change >= 0 ? 'var(--success)' : 'var(--danger)' }}>{Math.round(row.change)}</div>
-                                            <div style={{ fontWeight: 'bold' }}>₹{Math.round(row.result)}</div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div style={{ padding: '15px', background: 'rgba(59, 130, 246, 0.1)', borderTop: '1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                    <div style={{fontSize:'0.8rem', color:'var(--text-muted)'}}>ROI: {simROI.toFixed(1)}%</div>
-                                    <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: 'white' }}>₹{finalSimCap.toFixed(0)}</div>
-                                </div>
-                            </div>
-                        </>
-                    )}
-
-                    {/* --- TAB 3: GOAL PLANNER --- */}
-                    {mode === 'goal' && (
-                        <>
-                            {/* GOAL INPUTS */}
-                            <div style={{ display: 'flex', gap: '20px', marginBottom: '20px', flexWrap:'wrap' }}>
-                                <div style={{ flex: '1 1 150px' }}>
-                                    <label>Target Capital (₹)</label>
-                                    <input type="number" value={targetCapital} onChange={e => setTargetCapital(parseFloat(e.target.value) || 0)} style={{ borderColor: 'var(--accent)' }} />
-                                    <small style={{display:'block', color:'var(--text-muted)', fontSize:'0.7rem', marginTop:'2px'}}>e.g. 10000</small>
-                                </div>
-                                <div style={{ flex: '1 1 100px' }}>
-                                    <label>Days</label>
-                                    <input type="number" value={goalDays} onChange={e => setGoalDays(parseInt(e.target.value) || 20)} />
-                                </div>
-                            </div>
-
-                            {/* ASSUMPTIONS */}
-                            <div style={{ padding: '15px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', marginBottom: '20px', border:'1px solid var(--border)' }}>
-                                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: 'var(--text-muted)' }}>Trading Stats (Assumptions)</h4>
-                                <div style={{ display: 'flex', gap: '15px' }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label>Win Rate (%)</label>
-                                        <input type="number" value={goalWinRate} onChange={e => setGoalWinRate(parseFloat(e.target.value) || 50)} />
-                                    </div>
-                                    <div style={{ flex: 1 }}>
-                                        <label>Max Loss per Trade (%)</label>
-                                        <input type="number" value={goalLossPct} onChange={e => setGoalLossPct(parseFloat(e.target.value) || 1)} style={{ borderColor: 'var(--danger)' }} />
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* RESULTS CARD */}
-                            <div style={{ background: 'linear-gradient(145deg, #1e293b 0%, #0f172a 100%)', padding: '20px', borderRadius: '12px', border: '1px solid var(--border)', marginBottom:'20px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
-                                    <div style={{textAlign:'center', flex:1}}>
-                                        <div style={{fontSize:'0.8rem', color:'var(--text-muted)', marginBottom:'5px'}}>Req. Daily Growth</div>
-                                        <div style={{fontSize:'1.8rem', fontWeight:'bold', color: reqDailyPct > 5 ? '#f87171' : 'var(--success)'}}>
-                                            {reqDailyPct.toFixed(2)}%
-                                        </div>
-                                        {reqDailyPct > 5 && <div style={{fontSize:'0.7rem', color:'#f87171'}}>High Difficulty!</div>}
-                                    </div>
-                                    <div style={{width:'1px', background:'var(--border)'}}></div>
-                                    <div style={{textAlign:'center', flex:1}}>
-                                        <div style={{fontSize:'0.8rem', color:'var(--text-muted)', marginBottom:'5px'}}>Required Profit (Win %)</div>
-                                        <div style={{fontSize:'1.8rem', fontWeight:'bold', color: 'var(--accent)'}}>
-                                            {reqWinPct.toFixed(2)}%
-                                        </div>
-                                        <div style={{fontSize:'0.7rem', color:'var(--text-muted)'}}>
-                                            Reward:Risk = {(reqWinPct/goalLossPct).toFixed(1)}:1
-                                        </div>
-                                    </div>
-                                </div>
-                                <div style={{ fontSize: '0.85rem', color: 'var(--text-muted)', textAlign: 'center', background:'rgba(0,0,0,0.2)', padding:'10px', borderRadius:'6px' }}>
-                                    To grow from <b>₹{initialCapital}</b> to <b>₹{targetCapital}</b> in <b>{goalDays} days</b>:
-                                    <br />
-                                    You need a <b>{reqWinPct.toFixed(2)}%</b> gain on winning trades, assuming you lose <b>{goalLossPct}%</b> on losing trades (with {goalWinRate}% accuracy).
-                                </div>
-                            </div>
-                        </>
-                    )}
-
+                        </div>
+                    </div>
                 </div>
             </div>
+            
+            <style jsx>{`
+                .btn-quick {
+                    @apply py-2 rounded border border-[var(--card-border)] bg-[var(--background)] text-sm font-bold text-[var(--foreground)] hover:bg-[var(--card)] transition-colors;
+                }
+                .label-sm {
+                    @apply text-[10px] font-bold text-[var(--muted)] uppercase tracking-wide block mb-1;
+                }
+            `}</style>
         </div>
     );
 }
+
+const StatBox = ({ label, value, isMain }: { label: string, value: any, isMain?: boolean }) => (
+    <div className={`p-4 rounded-lg border ${isMain ? 'bg-[var(--accent)] border-transparent text-white' : 'bg-[var(--background)] border-[var(--card-border)]'}`}>
+        <div className={`text-[10px] font-bold uppercase tracking-wide mb-1 ${isMain ? 'text-white/70' : 'text-[var(--muted)]'}`}>{label}</div>
+        <div className="text-xl font-mono font-bold truncate" title={value}>{value}</div>
+    </div>
+);
