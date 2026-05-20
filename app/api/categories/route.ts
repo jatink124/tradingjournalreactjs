@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { createConnection } from '@/lib/db';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
   try {
     const db = await createConnection();
@@ -8,7 +10,8 @@ export async function GET() {
     await db.end();
     return NextResponse.json(rows);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('GET /api/categories error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to fetch categories' }, { status: 500 });
   }
 }
 

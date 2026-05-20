@@ -11,12 +11,15 @@ function JournalContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const editId = searchParams.get('id');
+    const modeParam = searchParams.get('mode');
     const { addToCalculator, isAuthenticated } = useGlobal();
 
     const [categories, setCategories] = useState<Category[]>([]);
-    const [currentMode, setCurrentMode] = useState('live');
+    const [currentMode, setCurrentMode] = useState(modeParam || 'live');
     const [images, setImages] = useState<string[]>([]);
     const [showChecklist, setShowChecklist] = useState(false);
+    const [showLeftPanel, setShowLeftPanel] = useState(true);
+    const [recentSourceRows, setRecentSourceRows] = useState<{ k: string; v: string; date: string; asset: string; id: number }[]>([]);
     
     const [formData, setFormData] = useState<JournalForm>({
         entryTime: '', assetType: 'NIFTY', stockName: '', focusArea: 'Price Action',
@@ -36,9 +39,51 @@ function JournalContent() {
         const localIso = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
         setFormData(prev => ({ ...prev, entryTime: localIso }));
 
+        // If a mode is passed, select it
+        if (modeParam) setCurrentMode(modeParam);
+
         // If Editing, Load Data
         if (editId) loadEntry(editId);
     }, [editId, isAuthenticated]);
+
+    useEffect(() => {
+        fetchRecentSourceRows();
+    }, []);
+
+    const fetchRecentSourceRows = async () => {
+        try {
+            const res = await fetch('/api/journal?type=source');
+            const data = await res.json();
+            if (!Array.isArray(data)) return;
+
+            const rows: { k: string; v: string; date: string; asset: string; id: number }[] = [];
+            data.forEach((entry: any) => {
+                try {
+                    const parsed = typeof entry.notes === 'string' ? JSON.parse(entry.notes || '{}') : entry.notes;
+                    const list = Array.isArray(parsed) ? parsed : parsed?.rows || [];
+                    if (Array.isArray(list)) {
+                        list.forEach((item: any) => {
+                            if (item && (item.k?.trim() || item.v?.trim())) {
+                                rows.push({
+                                    k: item.k || '',
+                                    v: item.v || '',
+                                    asset: entry.asset || '',
+                                    date: new Date(entry.id).toLocaleString(),
+                                    id: Number(entry.id)
+                                });
+                            }
+                        });
+                    }
+                } catch {
+                    // ignore invalid source format
+                }
+            });
+            rows.sort((a, b) => b.id - a.id);
+            setRecentSourceRows(rows);
+        } catch (e) {
+            console.error('Failed to load recent source rows', e);
+        }
+    };
 
     const fetchCategories = async () => {
         try {
@@ -50,10 +95,6 @@ function JournalContent() {
 
     const loadEntry = async (id: string) => {
         try {
-            // In a real app, we might have a single entry endpoint. 
-            // Here we filter from the list or fetch all.
-            // Let's assume we can fetch all and find it, or the API supports id param.
-            // Note: The existing API supports filtering but returns array.
             const res = await fetch('/api/journal');
             const data = await res.json();
             const entry = data.find((e: any) => e.id == id);
@@ -84,6 +125,18 @@ function JournalContent() {
                     updates.keyLevel = entry.key_level;
                     updates.planNotes = entry.plan_notes;
                     updates.mistakes = typeof entry.mistakes === 'string' ? JSON.parse(entry.mistakes) : entry.mistakes;
+                } else if (entry.entry_type === 'source') {
+                    try {
+                        const parsed = typeof entry.notes === 'string' ? JSON.parse(entry.notes || '{}') : entry.notes;
+                        if (Array.isArray(parsed)) {
+                            updates.resourceRows = parsed;
+                        } else {
+                            updates.resourceRows = parsed.rows || [];
+                            updates.liveNotes = parsed.summary || '';
+                        }
+                    } catch {
+                        updates.resourceRows = [];
+                    }
                 }
                 setFormData(prev => ({ ...prev, ...updates }));
             }
@@ -107,7 +160,7 @@ function JournalContent() {
         const finalId = editId ? parseInt(editId) : dateObj.getTime();
 
         let notes = "";
-        if (currentMode === 'source') notes = JSON.stringify(formData.resourceRows);
+        if (currentMode === 'source') notes = JSON.stringify({ rows: formData.resourceRows, summary: formData.liveNotes });
         else if (currentMode === 'trade') notes = formData.tradeLearning;
         else if (currentMode === 'eod') notes = "";
         else notes = formData.liveNotes;
@@ -145,35 +198,68 @@ function JournalContent() {
         } catch (e) { alert("Error saving entry"); }
     };
 
+    const handleDelete = async () => {
+        if (!editId) return;
+        if (!confirm('Delete this entry?')) return;
+        try {
+            await fetch(`/api/journal?id=${editId}`, { method: 'DELETE' });
+            router.push('/dashboard');
+        } catch (e) {
+            alert('Failed to delete entry.');
+        }
+    };
+
     return (
         <div className="flex justify-center p-4 md:p-8">
             <div className="w-full max-w-4xl">
-                <div className="flex justify-between items-center mb-6">
-                    <h1 className="text-2xl font-bold text-slate-200">
-                        {editId ? 'Edit Entry' : 'New Journal Entry'}
-                    </h1>
-                    <button onClick={() => router.push('/dashboard')} className="text-slate-400 hover:text-white">
-                        Cancel
-                    </button>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div>
+                        <h1 className="text-2xl font-bold text-slate-200">
+                            {editId ? 'Edit Entry' : 'New Journal Entry'}
+                        </h1>
+                        <p className="text-sm text-slate-400">Toggle the left form panel on or off as needed.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-3 items-center">
+                        {editId && (
+                            <button onClick={handleDelete}
+                                className="rounded-md border border-red-600 bg-red-600/10 px-4 py-2 text-sm font-medium text-red-300 hover:bg-red-600/20 transition">
+                                Delete Entry
+                            </button>
+                        )}
+                        <button onClick={() => setShowLeftPanel(prev => !prev)}
+                            className="rounded-md border border-[var(--card-border)] bg-[var(--card)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--background)] transition">
+                            {showLeftPanel ? 'Hide Left Panel' : 'Show Left Panel'}
+                        </button>
+                        <button onClick={() => router.push('/dashboard')} className="text-slate-400 hover:text-white text-sm">
+                            Cancel
+                        </button>
+                    </div>
                 </div>
 
-                <LeftPanel 
-                    currentMode={currentMode}
-                    setCurrentMode={setCurrentMode}
-                    formData={formData}
-                    setFormData={setFormData}
-                    handleSubmit={handleSubmit}
-                    editingId={editId ? parseInt(editId) : null}
-                    setEditingId={() => {}}
-                    images={images}
-                    setImages={setImages}
-                    setShowChecklist={setShowChecklist}
-                    downloadSql={() => {}} 
-                    clearDb={() => {}}
-                    categories={categories}
-                    refreshCategories={fetchCategories}
-                    addToCalculator={addToCalculator}
-                />
+                {showLeftPanel ? (
+                    <LeftPanel 
+                        currentMode={currentMode}
+                        setCurrentMode={setCurrentMode}
+                        formData={formData}
+                        setFormData={setFormData}
+                        handleSubmit={handleSubmit}
+                        editingId={editId ? parseInt(editId) : null}
+                        setEditingId={() => {}}
+                        images={images}
+                        setImages={setImages}
+                        setShowChecklist={setShowChecklist}
+                        downloadSql={() => {}} 
+                        clearDb={() => {}}
+                        categories={categories}
+                        refreshCategories={fetchCategories}
+                        addToCalculator={addToCalculator}
+                        recentSourceRows={recentSourceRows}
+                    />
+                ) : (
+                    <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-8 text-center text-sm text-[var(--muted)]">
+                        Left panel is hidden. Click “Show Left Panel” to edit journal entries again.
+                    </div>
+                )}
                 
                 <ChecklistModal isOpen={showChecklist} onClose={() => setShowChecklist(false)} />
             </div>

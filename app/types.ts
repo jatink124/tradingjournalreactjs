@@ -20,6 +20,9 @@ export type Entry = {
     lots: number;
     pnl: number;
     market_trend: string;
+    setup_type?: string;
+    trade_direction?: string;
+    trade_session?: string;
 };
 
 export type MistakeItem = {
@@ -67,6 +70,11 @@ export interface JournalForm {
     mistakes: string[];
     marketTrend: string;
     resourceRows: { k: string; v: string }[];
+    
+    // Advanced Features
+    setupType?: string;
+    tradeDirection?: string;
+    tradeSession?: string;
 }
 
 export type CalculatorEntry = {
@@ -74,4 +82,45 @@ export type CalculatorEntry = {
     val: number;
     isPercentage: boolean;
     note: string;
+};
+
+// Advanced Analytics Types
+export type TradeAnalysis = {
+    totalTrades: number;
+    winTrades: number;
+    lossTrades: number;
+    winRate: number;
+    netPnL: number;
+    avgWin: number;
+    avgLoss: number;
+    profitFactor: number;
+    expectancy: number;
+    rrRatio: number;
+    drawdown: number;
+    streakWin: number;
+    streakLose: number;
+};
+
+export type RRAnalysis = {
+    ratio: string;
+    count: number;
+    winRate: number;
+    avgPnL: number;
+    profitFactor: number;
+};
+
+export type TimingAnalysis = {
+    session: string;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+    bestHour: number;
+};
+
+export type SetupAnalysis = {
+    setupType: string;
+    trades: number;
+    winRate: number;
+    avgPnL: number;
+    profitFactor: number;
 };

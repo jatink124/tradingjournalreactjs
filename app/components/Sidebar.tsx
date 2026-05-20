@@ -19,6 +19,7 @@ export default function Sidebar({ onCloseMobile }: { onCloseMobile?: () => void 
     const menuItems = [
         { name: 'Dashboard', path: '/dashboard', icon: 'fas fa-chart-pie' },
         { name: 'Journal Entries', path: '/journal', icon: 'fas fa-table' },
+        { name: 'Analytics', path: '/analytics', icon: 'fas fa-chart-line' }
     ];
 
     return (

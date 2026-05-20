@@ -10,6 +10,7 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     const pathname = usePathname();
     const { showCalculator, setShowCalculator, calcEntries, setCalcEntries, isAuthenticated, theme } = useGlobal();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
     const isLoginPage = pathname === '/';
 
@@ -23,7 +24,7 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
                         className={`fixed inset-0 bg-black/80 z-40 transition-opacity md:hidden ${isMobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
                         onClick={() => setIsMobileMenuOpen(false)}
                     />
-                    <div className={`fixed top-0 left-0 bottom-0 w-64 bg-[var(--background)] border-r border-[var(--card-border)] z-50 transform transition-transform duration-300 md:translate-x-0 md:static md:flex ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                    <div className={`fixed top-0 left-0 bottom-0 w-64 bg-[var(--background)] border-r border-[var(--card-border)] z-50 transform transition-transform duration-300 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:static md:translate-x-0 ${isSidebarOpen ? 'md:flex' : 'md:hidden'}`}>
                          <Sidebar onCloseMobile={() => setIsMobileMenuOpen(false)} />
                     </div>
                 </>
@@ -38,6 +39,17 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
                          </button>
                          <span className="font-bold text-[var(--foreground)] tracking-tight">TRADEX</span>
                          <div className="w-8"></div>
+                    </div>
+                )}
+
+                {isAuthenticated && !isLoginPage && (
+                    <div className="hidden md:flex h-14 items-center justify-between px-4 border-b border-[var(--card-border)] bg-[var(--background)] shrink-0">
+                        <button onClick={() => setIsSidebarOpen(prev => !prev)}
+                            className="inline-flex items-center gap-2 rounded-md border border-[var(--card-border)] bg-[var(--card)] px-3 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--background)] transition">
+                            <i className={`fas fa-chevron-${isSidebarOpen ? 'left' : 'right'} text-xs`} />
+                            {isSidebarOpen ? 'Hide Platform Utilities' : 'Show Platform Utilities'}
+                        </button>
+                        <div className="text-sm text-[var(--muted)]">Sidebar is {isSidebarOpen ? 'visible' : 'hidden'}</div>
                     </div>
                 )}
                 

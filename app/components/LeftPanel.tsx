@@ -11,6 +11,14 @@ const Input = (props: any) => <input className="input-base" {...props} />;
 const Select = (props: any) => <select className="input-base" {...props}>{props.children}</select>;
 const TextArea = (props: any) => <textarea className="input-base resize-none" {...props} />;
 
+interface RecentSourceRow {
+    k: string;
+    v: string;
+    date: string;
+    asset: string;
+    id: number;
+}
+
 interface LeftPanelProps {
     currentMode: string;
     setCurrentMode: (m: string) => void;
@@ -27,14 +35,17 @@ interface LeftPanelProps {
     categories: Category[];
     refreshCategories: () => void;
     addToCalculator: (amount: number, note: string) => void;
+    recentSourceRows?: RecentSourceRow[];
 }
 
 export default function LeftPanel({
     currentMode, setCurrentMode, formData, setFormData, handleSubmit, editingId,
-    images, setImages, setShowChecklist, categories, refreshCategories, addToCalculator
+    images, setImages, setShowChecklist, categories, refreshCategories, addToCalculator,
+    recentSourceRows = []
 }: LeftPanelProps) {
     
     const [eodSection, setEodSection] = useState<'mistakes' | 'planning'>('mistakes');
+    const [sourceRowLimit, setSourceRowLimit] = useState(5);
     const [isUploading, setIsUploading] = useState(false);
     const [availableMistakes, setAvailableMistakes] = useState<MistakeItem[]>([]);
 
@@ -111,6 +122,83 @@ export default function LeftPanel({
                                 <div><Label>Exit Price</Label><div className="flex gap-2"><Input type="number" value={formData.tradeExit} onChange={(e:any) => handleInputChange('tradeExit', e.target.value)} placeholder="Exit" /><div className={`px-3 flex items-center border border-[var(--card-border)] rounded bg-[var(--background)] min-w-[80px] font-mono text-sm font-bold ${parseFloat(calculatePnLValue())>=0?'text-emerald-500':'text-red-500'}`}>{calculatePnLValue()}</div></div></div>
                             </div>
                             <div><Label>Review</Label><TextArea value={formData.tradeLearning} onChange={(e:any) => handleInputChange('tradeLearning', e.target.value)} className="input-base h-24" placeholder="Post-trade analysis..." /></div>
+                        </div>
+                    )}
+
+                    {currentMode === 'source' && (
+                        <div className="space-y-6">
+                            <h3 className="text-sm font-semibold text-[var(--foreground)] border-l-2 border-[var(--card-border)] pl-3">Source Data</h3>
+
+                            <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--background)] p-4">
+                                <div className="flex items-center justify-between gap-4 mb-4">
+                                    <div className="text-sm font-semibold text-[var(--foreground)]">Latest source keys</div>
+                                    <div className="flex gap-2">
+                                        {[5, 10].map((count) => (
+                                            <button key={count} type="button" onClick={() => setSourceRowLimit(count)}
+                                                className={`rounded-md px-2 py-1 text-xs font-semibold uppercase transition ${sourceRowLimit === count ? 'bg-blue-500 text-black' : 'border border-[var(--card-border)] text-[var(--muted)] hover:bg-[var(--card-border)]'}`}>
+                                                Top {count}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {recentSourceRows.length === 0 ? (
+                                    <div className="text-sm text-[var(--muted)]">No previous source keys found yet.</div>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {recentSourceRows.slice(0, sourceRowLimit).map((row, index) => (
+                                            <div key={`${row.id}-${row.k}-${index}`} className="rounded-2xl border border-[var(--card-border)] bg-[var(--background)] p-3">
+                                                <div className="flex items-center justify-between gap-3 text-[11px] text-[var(--muted)]">
+                                                    <span>{row.asset}</span>
+                                                    <span>{row.date}</span>
+                                                </div>
+                                                <div className="mt-2 text-sm text-[var(--foreground)]">
+                                                    <span className="font-semibold">{row.k || 'Key'}</span>: {row.v || 'No source description'}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="space-y-3">
+                                {formData.resourceRows.map((row, index) => (
+                                    <div key={index} className="grid grid-cols-[1fr_1fr_auto] gap-3 items-end">
+                                        <div>
+                                            <Label>Key</Label>
+                                            <Input value={row.k} onChange={(e:any) => setFormData(prev => {
+                                                const next = [...prev.resourceRows];
+                                                next[index] = { ...next[index], k: e.target.value };
+                                                return { ...prev, resourceRows: next };
+                                            })} placeholder="Example: Signal" />
+                                        </div>
+                                        <div>
+                                            <Label>Value</Label>
+                                            <Input value={row.v} onChange={(e:any) => setFormData(prev => {
+                                                const next = [...prev.resourceRows];
+                                                next[index] = { ...next[index], v: e.target.value };
+                                                return { ...prev, resourceRows: next };
+                                            })} placeholder="Example: Breakout on support" />
+                                        </div>
+                                        <button type="button" onClick={() => setFormData(prev => ({
+                                            ...prev,
+                                            resourceRows: prev.resourceRows.filter((_, i) => i !== index)
+                                        }))} className="mb-2 rounded-md border border-red-500 px-3 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/10 transition">
+                                            Remove
+                                        </button>
+                                    </div>
+                                ))}
+                                <button type="button" onClick={() => setFormData(prev => ({
+                                    ...prev,
+                                    resourceRows: [...prev.resourceRows, { k: '', v: '' }]
+                                }))} className="rounded-md border border-[var(--card-border)] bg-[var(--background)] px-4 py-2 text-sm font-medium text-[var(--foreground)] hover:bg-[var(--card-border)] transition">
+                                    Add Source Row
+                                </button>
+                            </div>
+                            <div>
+                                <Label>Summary</Label>
+                                <TextArea value={formData.liveNotes} onChange={(e:any) => handleInputChange('liveNotes', e.target.value)} className="input-base h-28" placeholder="Optional source summary or notes..." />
+                            </div>
                         </div>
                     )}
 

@@ -1,15 +1,23 @@
 import { NextResponse } from 'next/server';
 import { createConnection } from '@/lib/db';
 
-export async function GET() {
+export const dynamic = 'force-dynamic';
+
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url);
+    const type = searchParams.get('type');
     const db = await createConnection();
-    // Select all columns, including the new 'market_trend'
-    const [rows] = await db.query('SELECT * FROM journal_entries ORDER BY id DESC');
+
+    const [rows] = type
+      ? await db.query('SELECT * FROM journal_entries WHERE entry_type = ? ORDER BY id DESC', [type])
+      : await db.query('SELECT * FROM journal_entries ORDER BY id DESC');
+
     await db.end();
     return NextResponse.json(rows);
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('GET /api/journal error:', error);
+    return NextResponse.json({ error: error.message || 'Failed to fetch journal entries' }, { status: 500 });
   }
 }
 
